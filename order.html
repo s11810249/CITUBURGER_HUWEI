@@ -696,6 +696,25 @@
                 return () => unsubscribe();
             }, [currentUser]); // Dependency updated to currentUser
 
+            useEffect(() => {
+                // 解析網址參數
+                const params = new URLSearchParams(window.location.search);
+                const orderIdFromUrl = params.get('id');
+                
+                // 如果網址有 id，且訂單紀錄已經從 Firebase 載入完畢 (orderHistory 有資料)
+                if (orderIdFromUrl && orderHistory.length > 0) {
+                    const targetOrder = orderHistory.find(o => o.id === orderIdFromUrl);
+                    if (targetOrder) {
+                        // 自動將該訂單設為選取，這會觸發你的「滿版進度頁面」跳出來
+                        setSelectedOrderDetail(targetOrder);
+                        
+                        // 為了美觀，清掉網址上的 id，避免客人按返回鍵時重複彈出
+                        const newUrl = window.location.origin + window.location.pathname;
+                        window.history.replaceState(null, '', newUrl);
+                    }
+                }
+            }, [orderHistory]); // 關鍵：當 orderHistory 改變時（抓到資料後）就會執行檢查
+
             const showAlert = (msg) => { setMessageModal({ show: true, content: msg }); };
             const dayNames = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
 
@@ -1135,6 +1154,33 @@
                                 }
                             ].filter(Boolean) // 核心修正：過濾掉任何 null 或 false 的組件
                         }
+                        footer: {
+                            type: "box",
+                            layout: "vertical",
+                            spacing: "sm",
+                            contents: [
+                                {
+                                    type: "button",
+                                    style: "primary",
+                                    color: "#5B2274", // 你的品牌紫色
+                                    height: "sm",
+                                    action: {
+                                        type: "uri",
+                                        label: "查看訂單進度",
+                                        // 這裡透過網址參數帶入訂單的 Firestore ID
+                                        uri: `https://liff.line.me/${settings.liffId}?id=${order.id}`
+                                    }
+                                },
+                                {
+                                    type: "text",
+                                    text: "點擊按鈕可隨時追蹤餐點狀態",
+                                    size: "xs",
+                                    color: "#BCBCBC",
+                                    align: "center",
+                                    margin: "sm"
+                                }
+                            ]
+                        }
                     }
                 };
             };
@@ -1182,33 +1228,36 @@
                 localStorage.removeItem('cb_user_info');
                 
                 try {
+                    const confirmSubmitOrder = async () => {
+                // ... (前面計算金額與建立 newOrder 的邏輯不變) ...
+
+                try {
                     const { db, appId, addDoc, collection } = window;
                     
-                    // --- 2. 寫入訂單到資料庫 ---
-                    // 我們需要這個 docRef 來獲取新產生的系統 ID
+                    // 1. 先寫入資料庫取得 docRef
                     const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), newOrder);
                     
-                    // --- 3. LINE 訊息發送邏輯 ---
+                    // ★ 重要：把產生的 id 存起來給 Flex Message 使用
+                    const orderWithId = { ...newOrder, id: docRef.id };
+
+                    // 2. 傳送 LINE 訊息 (使用帶有 ID 的物件)
                     if (appMode === 'order') {
                         if (window.liff && window.liff.isInClient()) {
-                            const flexMessage = createFlexMessage(newOrder);
-                            await window.liff.sendMessages([flexMessage])
-                                .catch((err) => {
-                                    alert("❌ 訊息傳送失敗\n原因: " + err.message);
-                                });
+                            // 這裡產生的 Flex Message 裡面就會有按鈕網址了
+                            const flexMessage = createFlexMessage(orderWithId);
+                            await window.liff.sendMessages([flexMessage]).catch(err => console.error(err));
                         }
                     }
 
-                    // --- 4. 重置 UI 並「跳轉」至滿版進度頁面 ---
+                    // 3. 重置 UI 並「立即跳轉」
                     setCart([]); 
                     setShowCartModal(false); 
                     setUseLoyaltyCard(false); 
                     setSelectedCoupon(null); 
                     setShowSubmitConfirm(false);
-                    setCurrentView('history'); // 背景設為紀錄頁
+                    setCurrentView('history');
 
-                    // ★ 關鍵修正：設定當前選取的訂單為「剛才送出的這筆」
-                    // 這會立即觸發底部的 OrderDetailModal 顯示滿版進度
+                    // ★ 保留這裡：讓客人下單完「立刻」看到該筆訂單的滿版進度
                     setSelectedOrderDetail({ id: docRef.id });
 
                     showAlert("訂單已送出！店家已收到通知");
@@ -1727,3 +1776,4 @@
     </script>
 </body>
 </html>
+
