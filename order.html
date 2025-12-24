@@ -80,7 +80,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
         import { getAuth, signInWithCredential, OAuthProvider, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
-        import { getFirestore, doc, onSnapshot, collection, addDoc, enableIndexedDbPersistence, query, where, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+        import { getFirestore, doc, onSnapshot, collection, addDoc, setDoc, updateDoc, enableIndexedDbPersistence, query, where, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyA9x0gk2zQBJr1vkNLAoBodbBQ3_D2aXag",
@@ -109,6 +109,7 @@
         window.collection = collection;
         window.addDoc = addDoc;
         window.setDoc = setDoc;
+	    window.updateDoc = updateDoc;
         window.query = query;
         window.where = where;
         window.orderBy = orderBy;
@@ -794,425 +795,165 @@
             //   - 依照您提供的 JSON 結構重建
             // ==========================================
             const createFlexMessage = (order) => {
-                // 顏色定義
                 const BRAND_COLOR = "#5B2274";
                 const RED_COLOR = "#EF4444";
                 const GREEN_COLOR = "#10B981";
                 const TEXT_COLOR = "#1E293B";
                 const SUB_TEXT_COLOR = "#64748B";
 
-                // 工具函式
-                const safeStr = (val) => (val !== undefined && val !== null) ? String(val) : "";
+                // 強化版安全字串檢查：絕對不回傳空字串或純空白
+                const safeStr = (val, defaultVal = "-") => {
+                    if (val === undefined || val === null) return defaultVal;
+                    const s = String(val).trim();
+                    return s === "" ? defaultVal : s;
+                };
                 
                 const formatDateTime = (isoString) => {
-                    if (!isoString) return "";
+                    if (!isoString) return "-";
                     try {
                         const d = new Date(isoString);
                         const twDate = new Date(d.toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
-                        const yyyy = twDate.getFullYear();
-                        const mm = String(twDate.getMonth() + 1).padStart(2, '0');
-                        const dd = String(twDate.getDate()).padStart(2, '0');
-                        const hh = String(twDate.getHours()).padStart(2, '0');
-                        const min = String(twDate.getMinutes()).padStart(2, '0');
-                        return `${yyyy}/${mm}/${dd} ${hh}:${min}`;
-                    } catch (e) {
-                        return "";
-                    }
+                        return `${twDate.getFullYear()}/${String(twDate.getMonth() + 1).padStart(2, '0')}/${String(twDate.getDate()).padStart(2, '0')} ${String(twDate.getHours()).padStart(2, '0')}:${String(twDate.getMinutes()).padStart(2, '0')}`;
+                    } catch (e) { return "-"; }
                 };
                 
-                // 資料處理
-                const orderTimeStr = formatDateTime(order.createdAt);
                 const userInfo = order.userInfo || {};
-                const pickupDateDisplay = (userInfo.pickupDate || "").replace(/-/g, '/');
-                const pickupTimeDisplay = userInfo.pickupTime || "";
-                // 判斷聯絡方式文字
+                // 確保時間日期不為空
+                const pickupDateDisplay = (safeStr(userInfo.pickupDate, "未設定")).replace(/-/g, '/');
+                const pickupTimeDisplay = safeStr(userInfo.pickupTime, "未設定");
                 const contactMethodText = userInfo.contactMethod === 'line' ? '優先 LINE 聯絡' : '優先電話聯絡';
 
-                // 產生餐點列表 (維持 Box Padding 縮排邏輯)
+                // 訂單項目的渲染
                 const generateItemRows = () => {
                     if (!Array.isArray(order.items) || order.items.length === 0) {
                         return [{ type: "text", text: "無餐點資料", color: SUB_TEXT_COLOR, align: "center" }];
                     }
-
                     return order.items.flatMap((item, index) => {
                         const details = [];
                         if (item.variantName) details.push(`規格：${item.variantName}`);
-                        
-                        if (Array.isArray(item.addons) && item.addons.length > 0) {
-                            details.push(`客製：${item.addons.map(a => a.name).join('、')}`);
-                        }
-
+                        if (Array.isArray(item.addons) && item.addons.length > 0) details.push(`客製：${item.addons.map(a => a.name).join('、')}`);
                         if (item.set && item.setChoices) {
-                            const setContentStr = Object.values(item.setChoices).map(c => {
-                                let s = c.name;
-                                if(c.variantName) s += `(${c.variantName})`;
-                                return s;
-                            }).join('、');
+                            const setContentStr = Object.values(item.setChoices).map(c => c.name + (c.variantName ? `(${c.variantName})` : "")).join('、');
                             if(setContentStr) details.push(`套餐：${setContentStr}`);
                         }
-
-                        if (item.sideGroups && Object.keys(item.sideGroups).length > 0) {
-                            const sideStr = Object.values(item.sideGroups).map(c => {
-                                let s = c.name;
-                                if(c.variantName) s += `(${c.variantName})`;
-                                return s;
-                            }).join('、');
-                            if(sideStr) details.push(`附餐：${sideStr}`);
-                        }
-                        
                         if (item.note) details.push(`備註：${item.note}`);
 
-                        const rowComponents = [
-                            // 1. 餐點名稱/數量/價格
+                        const rows = [
                             {
-                                type: "box", layout: "horizontal",
-                                margin: index > 0 ? "md" : "none",
+                                type: "box", layout: "horizontal", margin: index > 0 ? "md" : "none",
                                 contents: [
                                     { type: "text", text: `${item.qty} x`, size: "md", color: TEXT_COLOR, flex: 1, weight: "bold" },
-                                    { type: "text", text: String(item.name || ""), size: "md", color: TEXT_COLOR, flex: 4, wrap: true, weight: "bold" },
+                                    { type: "text", text: safeStr(item.name), size: "md", color: TEXT_COLOR, flex: 4, wrap: true, weight: "bold" },
                                     { type: "text", text: `$${item.totalPrice}`, size: "md", color: TEXT_COLOR, flex: 2, align: "end", weight: "bold" }
                                 ]
-                            },
-                            // 2. 細項縮排
-                            ...(details.length > 0 ? [{
-                                type: "box", layout: "vertical", paddingStart: "xxl",
-                                contents: details.map((detail, i) => ({
-                                    type: "text", text: detail, size: "xs", color: SUB_TEXT_COLOR, wrap: true, margin: i > 0 ? "xs" : "none"
-                                }))
-                            }] : []),
-                            // 3. 分隔線 (除了最後一項)
-                            ...(index < order.items.length - 1 ? [{ type: "separator", margin: "md" }] : [])
+                            }
                         ];
 
-                        return rowComponents;
+                        if (details.length > 0) {
+                            rows.push({
+                                type: "box", layout: "vertical", paddingStart: "xxl",
+                                contents: details.map((detail, i) => ({
+                                    type: "text", text: safeStr(detail), size: "xs", color: SUB_TEXT_COLOR, wrap: true, margin: i > 0 ? "xs" : "none"
+                                }))
+                            });
+                        }
+                        if (index < order.items.length - 1) {
+                            rows.push({ type: "separator", margin: "md" });
+                        }
+                        return rows;
                     });
                 };
 
+                // 最終輸出的訊息結構
                 return {
                     type: "flex",
-                    altText: `新訂單通知：${safeStr(userInfo.name)}`,
+                    // 關鍵修正：altText 強制移除換行與首尾空白，若為空則給預設值
+                    altText: `新訂單通知：${safeStr(userInfo.name, "顧客")}`.replace(/\n/g, " ").trim(),
                     contents: {
                         type: "bubble",
                         body: {
-                            type: "box",
-                            layout: "vertical",
+                            type: "box", layout: "vertical",
                             contents: [
-                                // --- 店名 ---
+                                { type: "text", text: "城市漢堡 虎尾光復店", weight: "bold", color: BRAND_COLOR, size: "md", align: "center" },
                                 {
-                                    type: "text",
-                                    text: "城市漢堡 虎尾光復店",
-                                    weight: "bold",
-                                    color: BRAND_COLOR,
-                                    size: "md",
-                                    align: "center"
+                                    type: "box", layout: "horizontal", justifyContent: "center", alignItems: "center", margin: "md",
+                                    contents: [
+                                        { type: "text", text: "新訂單通知", size: "xl", color: RED_COLOR, weight: "bold", flex: 0 },
+                                        {
+                                            type: "box", layout: "vertical", backgroundColor: RED_COLOR, cornerRadius: "md", paddingStart: "lg", paddingEnd: "lg", paddingTop: "xs", paddingBottom: "xs", margin: "md", flex: 0,
+                                            contents: [{ type: "text", text: "自取", color: "#ffffff", size: "lg", weight: "bold" }]
+                                        }
+                                    ]
                                 },
+                                {
+                                    type: "box", layout: "horizontal", justifyContent: "center", margin: "xl",
+                                    contents: [{
+                                        type: "box", layout: "vertical", backgroundColor: BRAND_COLOR, cornerRadius: "md", paddingAll: "sm", width: "100px",
+                                        contents: [{ type: "text", text: "取餐時間", color: "#ffffff", size: "sm", weight: "bold", align: "center" }]
+                                    }]
+                                },
+                                { type: "text", text: safeStr(pickupDateDisplay), size: "xl", weight: "bold", align: "center", margin: "md", color: BRAND_COLOR },
+                                { type: "text", text: safeStr(pickupTimeDisplay), size: "4xl", weight: "bold", align: "center", color: BRAND_COLOR },
+                                { type: "separator", margin: "xl", color: TEXT_COLOR },
                                 
-                                // --- 標題區 (新訂單 + 自取) ---
-                                {
-                                    type: "box",
-                                    layout: "horizontal",
-                                    justifyContent: "center",
-                                    alignItems: "center",
-                                    margin: "md",
-                                    contents: [
-                                        {
-                                            type: "text",
-                                            text: "新訂單通知",
-                                            size: "xl",
-                                            color: RED_COLOR,
-                                            weight: "bold",
-                                            flex: 0
-                                        },
-                                        {
-                                            type: "box",
-                                            layout: "vertical",
-                                            backgroundColor: RED_COLOR,
-                                            cornerRadius: "md",
-                                            paddingStart: "lg",
-                                            paddingEnd: "lg",
-                                            paddingTop: "xs",
-                                            paddingBottom: "xs",
-                                            margin: "md",
-                                            flex: 0,
-                                            contents: [
-                                                {
-                                                    type: "text",
-                                                    text: "自取",
-                                                    color: "#ffffff",
-                                                    size: "lg",
-                                                    weight: "bold"
-                                                }
-                                            ]
-                                        }
-                                    ]
-                                },
-
-                                // --- 取餐時間區塊 ---
-                                {
-                                    type: "box",
-                                    layout: "horizontal",
-                                    justifyContent: "center",
-                                    margin: "xl", // 上方大間距
-                                    contents: [
-                                        {
-                                            type: "box",
-                                            layout: "vertical",
-                                            backgroundColor: BRAND_COLOR,
-                                            cornerRadius: "md",
-                                            paddingAll: "sm",
-                                            width: "100px",
-                                            contents: [
-                                                {
-                                                    type: "text",
-                                                    text: "取餐時間",
-                                                    color: "#ffffff",
-                                                    size: "sm",
-                                                    weight: "bold",
-                                                    align: "center"
-                                                }
-                                            ]
-                                        }
-                                    ]
-                                },
-                                {
-                                    type: "text",
-                                    text: pickupDateDisplay,
-                                    size: "xl",
-                                    weight: "bold",
-                                    align: "center",
-                                    margin: "md",
-                                    color: BRAND_COLOR
-                                },
-                                {
-                                    type: "text",
-                                    text: pickupTimeDisplay,
-                                    size: "4xl",
-                                    weight: "bold",
-                                    align: "center",
-                                    color: BRAND_COLOR
-                                },
-                                {
-                                    type: "separator",
-                                    margin: "xl", // 下方大間距
-                                    color: TEXT_COLOR
-                                },
-
-                                // --- 餐點列表 ---
-                                {
-                                    type: "box",
-                                    layout: "vertical",
-                                    margin: "lg",
-                                    spacing: "xs",
-                                    contents: generateItemRows()
-                                },
-
-                                {
-                                    type: "separator",
-                                    margin: "lg",
-                                    color: TEXT_COLOR
-                                },
-
-                                // --- 金額區 ---
-                                {
-                                    type: "text",
-                                    text: "訂單總金額",
-                                    size: "md",
-                                    weight: "bold",
-                                    align: "center",
-                                    color: TEXT_COLOR,
-                                    margin: "lg"
-                                },
-                                {
-                                    type: "text",
-                                    text: `$${order.totalPrice}`,
-                                    size: "4xl",
-                                    weight: "bold",
-                                    align: "center",
-                                    color: TEXT_COLOR,
-                                    margin: "sm"
-                                },
+                                // 點餐項目區
+                                { type: "box", layout: "vertical", margin: "lg", spacing: "xs", contents: generateItemRows() },
                                 
-                                // --- 折扣區 (判斷是否有折扣) ---
-                                (order.discountAmount > 0 ? {
-                                    type: "box",
-                                    layout: "horizontal",
-                                    justifyContent: "center",
-                                    alignItems: "center",
-                                    margin: "md",
-                                    contents: [
-                                        {
-                                            type: "text",
-                                            text: "折扣優惠：",
-                                            size: "md",
-                                            color: TEXT_COLOR,
-                                            flex: 0
-                                        },
-                                        {
-                                            type: "box",
-                                            layout: "vertical",
-                                            backgroundColor: RED_COLOR,
-                                            cornerRadius: "md",
-                                            paddingStart: "sm",
-                                            paddingEnd: "sm",
-                                            flex: 0,
-                                            margin: "sm",
-                                            contents: [
-                                                {
-                                                    type: "text",
-                                                    text: order.discountApplied === 'loyalty' ? "集點卡" : "優惠券",
-                                                    color: "#ffffff",
-                                                    size: "xs",
-                                                    weight: "bold"
-                                                }
-                                            ]
-                                        },
-                                        {
-                                            type: "text",
-                                            text: `-$${order.discountAmount}`,
-                                            color: RED_COLOR,
-                                            size: "md",
-                                            weight: "bold",
-                                            margin: "sm"
-                                        }
-                                    ]
-                                } : { type: "spacer", size: "xs" }),
-
-                                {
-                                    type: "separator",
-                                    margin: "lg",
-                                    color: TEXT_COLOR
-                                },
-
-                                // --- 訂單編號 ---
-                                {
-                                    type: "box",
-                                    layout: "baseline",
-                                    margin: "lg",
-                                    contents: [
-                                        {
-                                            type: "text",
-                                            text: "訂單編號：",
-                                            size: "sm",
-                                            color: SUB_TEXT_COLOR,
-                                            flex: 0
-                                        },
-                                        {
-                                            type: "text",
-                                            text: safeStr(order.orderId),
-                                            size: "sm",
-                                            color: TEXT_COLOR,
-                                            weight: "bold",
-                                            flex: 1
-                                        }
-                                    ]
-                                },
-                                // --- 訂餐時間 ---
-                                {
-                                    type: "box",
-                                    layout: "baseline",
-                                    margin: "sm",
-                                    contents: [
-                                        {
-                                            type: "text",
-                                            text: "訂餐時間：",
-                                            size: "sm",
-                                            color: SUB_TEXT_COLOR,
-                                            flex: 0
-                                        },
-                                        {
-                                            type: "text",
-                                            text: orderTimeStr,
-                                            size: "sm",
-                                            color: TEXT_COLOR,
-                                            flex: 1
-                                        }
-                                    ]
-                                },
+                                { type: "separator", margin: "lg", color: TEXT_COLOR },
+                                { type: "text", text: "訂單總金額", size: "md", weight: "bold", align: "center", color: TEXT_COLOR, margin: "lg" },
+                                { type: "text", text: `$${order.totalPrice}`, size: "4xl", weight: "bold", align: "center", color: TEXT_COLOR, margin: "sm" },
                                 
-                                {
-                                    type: "separator",
-                                    margin: "lg",
-                                    color: TEXT_COLOR
-                                },
+                                // 折扣區：使用 Boolean 過濾確保不產生空組件
+                                ...(order.discountAmount > 0 ? [{
+                                    type: "box", layout: "horizontal", justifyContent: "center", alignItems: "center", margin: "md",
+                                    contents: [
+                                        { type: "text", text: "折扣優惠：", size: "md", color: TEXT_COLOR, flex: 0 },
+                                        {
+                                            type: "box", layout: "vertical", backgroundColor: RED_COLOR, cornerRadius: "md", paddingStart: "sm", paddingEnd: "sm", flex: 0, margin: "sm",
+                                            contents: [{ type: "text", text: order.discountApplied === 'loyalty' ? "集點卡" : "優惠券", color: "#ffffff", size: "xs", weight: "bold" }]
+                                        },
+                                        { type: "text", text: `-$${order.discountAmount}`, color: RED_COLOR, size: "md", weight: "bold", margin: "sm" }
+                                    ]
+                                }] : []),
 
-                                // --- 取餐人 ---
+                                { type: "separator", margin: "lg", color: TEXT_COLOR },
                                 {
-                                    type: "box",
-                                    layout: "baseline",
-                                    margin: "lg",
+                                    type: "box", layout: "baseline", margin: "lg",
                                     contents: [
-                                        {
-                                            type: "text",
-                                            text: "取餐人：",
-                                            size: "md",
-                                            color: SUB_TEXT_COLOR,
-                                            flex: 0
-                                        },
-                                        {
-                                            type: "text",
-                                            text: safeStr(userInfo.name),
-                                            size: "md", // 您的 JSON 是 md
-                                            color: TEXT_COLOR,
-                                            weight: "bold",
-                                            flex: 1,
-                                            wrap: true
-                                        }
+                                        { type: "text", text: "訂單編號：", size: "sm", color: SUB_TEXT_COLOR, flex: 0 },
+                                        { type: "text", text: safeStr(order.orderId), size: "sm", color: TEXT_COLOR, weight: "bold", flex: 1 }
                                     ]
                                 },
-                                // --- 連絡電話 ---
                                 {
-                                    type: "box",
-                                    layout: "baseline",
-                                    margin: "md",
-                                    spacing: "none", // 依照您的 JSON 設定
+                                    type: "box", layout: "baseline", margin: "sm",
                                     contents: [
-                                        {
-                                            type: "text",
-                                            text: "連絡電話：",
-                                            size: "md",
-                                            color: SUB_TEXT_COLOR,
-                                            flex: 0
-                                        },
-                                        {
-                                            type: "text",
-                                            text: safeStr(userInfo.phone),
-                                            size: "md",
-                                            color: TEXT_COLOR,
-                                            weight: "bold",
-                                            flex: 1
-                                        }
+                                        { type: "text", text: "訂餐時間：", size: "sm", color: SUB_TEXT_COLOR, flex: 0 },
+                                        { type: "text", text: formatDateTime(order.createdAt), size: "sm", color: TEXT_COLOR, flex: 1 }
                                     ]
                                 },
-                                // --- 優先聯絡方式 (綠色大按鈕) ---
+                                { type: "separator", margin: "lg", color: TEXT_COLOR },
                                 {
-                                    type: "box",
-                                    layout: "horizontal",
-                                    margin: "md",
+                                    type: "box", layout: "baseline", margin: "lg",
                                     contents: [
-                                        {
-                                            type: "box",
-                                            layout: "vertical",
-                                            backgroundColor: GREEN_COLOR,
-                                            cornerRadius: "md",
-                                            paddingStart: "sm",
-                                            paddingEnd: "sm",
-                                            paddingTop: "xs",
-                                            paddingBottom: "xs",
-                                            flex: 1,
-                                            contents: [
-                                                {
-                                                    type: "text",
-                                                    text: contactMethodText,
-                                                    color: "#ffffff",
-                                                    size: "lg", // 您的 JSON 設定為 lg
-                                                    weight: "bold",
-                                                    align: "center"
-                                                }
-                                            ]
-                                        }
+                                        { type: "text", text: "取餐人：", size: "md", color: SUB_TEXT_COLOR, flex: 0 },
+                                        { type: "text", text: safeStr(userInfo.name), size: "md", color: TEXT_COLOR, weight: "bold", flex: 1, wrap: true }
                                     ]
+                                },
+                                {
+                                    type: "box", layout: "baseline", margin: "md",
+                                    contents: [
+                                        { type: "text", text: "連絡電話：", size: "md", color: SUB_TEXT_COLOR, flex: 0 },
+                                        { type: "text", text: safeStr(userInfo.phone), size: "md", color: TEXT_COLOR, weight: "bold", flex: 1 }
+                                    ]
+                                },
+                                {
+                                    type: "box", layout: "horizontal", margin: "md",
+                                    contents: [{
+                                        type: "box", layout: "vertical", backgroundColor: GREEN_COLOR, cornerRadius: "md", paddingTop: "xs", paddingBottom: "xs", flex: 1,
+                                        contents: [{ type: "text", text: safeStr(contactMethodText), color: "#ffffff", size: "lg", weight: "bold", align: "center" }]
+                                    }]
                                 }
-                            ]
+                            ].filter(Boolean) // 核心修正：過濾掉任何 null 或 false 的組件
                         }
                     }
                 };
