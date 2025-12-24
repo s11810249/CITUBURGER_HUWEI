@@ -1,0 +1,1315 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>City Burger Admin V17.3 (Dual LIFF)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Cloudinary Widget -->
+    <script src="https://upload-widget.cloudinary.com/global/all.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+        
+        :root {
+            --primary: #5B2274;
+            --primary-dark: #3b1649;
+            --bg-body: #F8FAFC;
+        }
+
+        body { 
+            font-family: 'Plus Jakarta Sans', 'Noto Sans TC', sans-serif; 
+            background-color: var(--bg-body); 
+            color: #1E293B; 
+            font-size: 14px; 
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        @media (min-width: 1024px) {
+            body { font-size: 16px; }
+        }
+
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(226, 232, 240, 0.8);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        }
+
+        .glass-sidebar {
+            background: linear-gradient(165deg, #5B2274 0%, #2E103B 100%);
+            color: white;
+        }
+
+        .input-compact { 
+            transition: all 0.2s; 
+            border: 1px solid #E2E8F0; 
+            font-size: 0.875rem;
+            padding: 0.6rem 0.75rem;
+            width: 100%;
+            border-radius: 0.5rem;
+        }
+        
+        @media (min-width: 1024px) {
+            .input-compact { 
+                padding: 0.75rem 1rem; 
+                font-size: 1rem; 
+            }
+        }
+
+        .input-compact:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(91, 34, 116, 0.08); outline: none; background: white; }
+
+        .time-input-wrapper { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+        input[type="time"] { min-width: 0; width: 100%; appearance: none; }
+
+        .custom-select-container { position: relative; }
+        .custom-select-trigger { cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: white; border: 1px solid #E2E8F0; border-radius: 0.5rem; padding: 0.6rem 0.75rem; font-size: 0.875rem; transition: all 0.2s; }
+        @media (min-width: 1024px) { .custom-select-trigger { padding: 0.75rem 1rem; font-size: 1rem; } }
+        .custom-select-trigger:hover { border-color: #cbd5e1; }
+        .custom-select-options { position: absolute; top: 100%; left: 0; right: 0; z-index: 100; background: white; border: 1px solid #E2E8F0; border-radius: 0.5rem; margin-top: 4px; max-height: 240px; overflow-y: auto; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15); }
+        .custom-option { padding: 8px 12px; cursor: pointer; font-size: 0.85rem; color: #475569; transition: all 0.1s; }
+        .custom-option:hover { background-color: #F8FAFC; color: var(--primary); }
+        .custom-option.selected { background-color: #F3E8FF; color: var(--primary); }
+        .select-search { padding: 8px; border-bottom: 1px solid #E2E8F0; position: sticky; top: 0; background: white; z-index: 10; }
+        .select-search input { width: 100%; padding: 6px 10px; border: 1px solid #E2E8F0; border-radius: 6px; font-size: 0.8rem; outline: none; }
+        .select-search input:focus { border-color: var(--primary); }
+
+        .switch { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .4s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 2px; bottom: 2px; background-color: white; transition: .4s; border-radius: 50%; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+        input:checked + .slider { background-color: var(--primary); }
+        input:checked + .slider:before { transform: translateX(16px); }
+        .switch.danger input:checked + .slider { background-color: #ef4444; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+        
+        .loading-overlay { position: fixed; inset: 0; background: rgba(255,255,255,0.8); backdrop-filter: blur(5px); z-index: 9999; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 1rem; color: var(--primary); font-weight: 800; }
+        
+        /* Order Status Badges */
+        .badge-pending { background: #f1f5f9; color: #64748b; }
+        .badge-confirmed { background: #e0f2fe; color: #0284c7; }
+        .badge-completed { background: #dcfce7; color: #16a34a; }
+        .badge-cancelled { background: #fee2e2; color: #dc2626; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
+        import { getFirestore, collection, doc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, writeBatch } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyA9x0gk2zQBJr1vkNLAoBodbBQ3_D2aXag",
+            authDomain: "cityburger-huwei.firebaseapp.com",
+            projectId: "cityburger-huwei",
+            storageBucket: "cityburger-huwei.firebasestorage.app",
+            messagingSenderId: "546465207310",
+            appId: "1:546465207310:web:4b742f2a3b883dee58585f"
+        };
+        const appId = "cityburger-huwei-v1";
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const provider = new GoogleAuthProvider();
+        const db = getFirestore(app);
+
+        window.firebase = { auth, db, appId, provider };
+        window.firestore = { collection, doc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, writeBatch };
+        window.authActions = { signInWithPopup, signOut, onAuthStateChanged };
+    </script>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useMemo } = React;
+
+        const Icon = ({ name, size = 18, className = "" }) => {
+            const [iconData, setIconData] = useState(null);
+            useEffect(() => {
+                if (window.lucide && window.lucide.icons) {
+                    const pascalName = name.charAt(0).toUpperCase() + name.slice(1);
+                    setIconData(window.lucide.icons[name] || window.lucide.icons[pascalName] || null);
+                }
+            }, [name]);
+            if (!iconData) return <span style={{ width: size, height: size }} className={`inline-block ${className}`}></span>;
+            return (
+                <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                    {iconData.map(([tag, attrs], i) => React.createElement(tag, { ...attrs, key: i }))}
+                </svg>
+            );
+        };
+
+        const BlurInput = ({ value, onSave, className, type="text", placeholder, list, ...props }) => {
+            const [localValue, setLocalValue] = useState(value);
+            useEffect(() => { setLocalValue(value); }, [value]);
+            const handleBlur = () => { if (localValue !== value) onSave(localValue); };
+            const handleKeyDown = (e) => { if (e.key === 'Enter') e.target.blur(); };
+            return <input type={type} className={className} value={localValue || ''} onChange={(e) => setLocalValue(e.target.value)} onBlur={handleBlur} onKeyDown={handleKeyDown} placeholder={placeholder} list={list} {...props} />;
+        };
+
+        const Button = ({ children, onClick, variant = 'primary', className = "", icon, size="normal" }) => {
+            const variants = {
+                primary: "bg-[#5B2274] text-white hover:bg-[#4a1b5e] shadow-md shadow-purple-900/10",
+                secondary: "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200",
+                danger: "bg-red-50 text-red-500 hover:bg-red-100 border border-red-100",
+                ghost: "bg-transparent text-slate-400 hover:bg-slate-100",
+                success: "bg-emerald-600 text-white hover:bg-emerald-700 shadow-md shadow-emerald-200"
+            };
+            const sizes = { small: "px-2 py-1.5 text-[10px]", normal: "px-4 py-2.5 text-xs lg:text-sm lg:px-6 lg:py-3" };
+            return (
+                <button onClick={onClick} className={`flex items-center justify-center gap-2 rounded-lg font-bold transition-all active:scale-95 tracking-wide ${variants[variant]} ${sizes[size]} ${className}`}>
+                    {icon && <Icon name={icon} size={size==='small'?14:18} />}
+                    {children}
+                </button>
+            );
+        };
+
+        const SortButton = ({ direction, onClick, disabled }) => (
+            <button onClick={(e) => { e.stopPropagation(); onClick(); }} disabled={disabled} className="w-7 h-7 lg:w-9 lg:h-9 flex items-center justify-center rounded-md bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-[#5B2274] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                <Icon name={direction === 'up' ? 'ChevronUp' : 'ChevronDown'} size={14} />
+            </button>
+        );
+
+        const ToggleSwitch = ({ checked, onChange, variant = "primary" }) => (
+            <label className={`switch ${variant}`}>
+                <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+                <span className="slider"></span>
+            </label>
+        );
+
+        const MultiSelect = ({ value = [], onChange, options, placeholder = "選擇..." }) => {
+            const [isOpen, setIsOpen] = useState(false);
+            const ref = useRef(null);
+            useEffect(() => {
+                const handleClickOutside = (event) => { if (ref.current && !ref.current.contains(event.target)) setIsOpen(false); };
+                document.addEventListener('mousedown', handleClickOutside);
+                return () => document.removeEventListener('mousedown', handleClickOutside);
+            }, []);
+            const selectedLabels = options.filter(o => value.includes(o.value)).map(o => o.label).join(", ");
+            return (
+                <div className="custom-select-container w-full" ref={ref} style={{ zIndex: isOpen ? 50 : 'auto' }}>
+                    <div className={`custom-select-trigger ${isOpen ? 'border-[#5B2274]' : ''}`} onClick={() => setIsOpen(!isOpen)}>
+                        <span className={`font-medium truncate ${value.length > 0 ? 'text-slate-700' : 'text-slate-400'}`}>
+                            {value.length > 0 ? selectedLabels : placeholder}
+                        </span>
+                        <Icon name="ChevronDown" size={14} className={`text-slate-400 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                    </div>
+                    {isOpen && (
+                        <div className="custom-select-options no-scrollbar p-1">
+                            {options.length > 0 ? options.map(opt => {
+                                const isSelected = value.includes(opt.value);
+                                return (
+                                    <div key={opt.value} className={`custom-option rounded flex items-center justify-between ${isSelected ? 'bg-purple-50 text-[#5B2274]' : ''}`} onClick={(e) => {
+                                            e.stopPropagation();
+                                            const newValue = isSelected ? value.filter(v => v !== opt.value) : [...value, opt.value];
+                                            onChange(newValue);
+                                        }}>
+                                        <span>{opt.label}</span>
+                                        {isSelected && <Icon name="Check" size={14} />}
+                                    </div>
+                                );
+                            }) : <div className="p-3 text-xs text-slate-400 text-center">無選項</div>}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const CustomSelect = ({ value, onChange, options, placeholder = "請選擇...", searchable = false, className="", allowCustom = false }) => {
+            const [isOpen, setIsOpen] = useState(false);
+            const [search, setSearch] = useState("");
+            const ref = useRef(null);
+            useEffect(() => {
+                const handleClickOutside = (event) => { if (ref.current && !ref.current.contains(event.target)) setIsOpen(false); };
+                document.addEventListener('mousedown', handleClickOutside);
+                return () => document.removeEventListener('mousedown', handleClickOutside);
+            }, []);
+            const filteredOptions = searchable ? options.filter(opt => opt.label.toLowerCase().includes(search.toLowerCase())) : options;
+            const selectedOption = options.find(o => o.value === value);
+            return (
+                <div className={`custom-select-container w-full ${className}`} ref={ref} style={{ zIndex: isOpen ? 50 : 'auto' }}>
+                    <div className={`custom-select-trigger ${isOpen ? 'border-[#5B2274]' : ''}`} onClick={() => { setIsOpen(!isOpen); setSearch(""); }}>
+                        <span className={`font-medium truncate ${selectedOption ? 'text-slate-700' : 'text-slate-400'}`}>{selectedOption ? selectedOption.label : (value || placeholder)}</span>
+                        <Icon name="ChevronDown" size={14} className={`text-slate-400 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                    </div>
+                    {isOpen && (
+                        <div className="custom-select-options no-scrollbar">
+                            {searchable && (<div className="select-search" onClick={(e) => e.stopPropagation()}><input type="text" placeholder="搜尋或輸入..." value={search} onChange={(e) => setSearch(e.target.value)} autoFocus /></div>)}
+                            {allowCustom && search && !filteredOptions.find(o => o.label === search) && (<div className="custom-option text-[#5B2274] font-bold border-b border-purple-50" onClick={() => { onChange(search); setIsOpen(false); }}>+ 使用 "{search}"</div>)}
+                            {filteredOptions.length > 0 ? (filteredOptions.map(opt => (<div key={opt.value} className={`custom-option ${value === opt.value ? 'selected' : ''}`} onClick={() => { onChange(opt.value); setIsOpen(false); }}>{opt.label}</div>))) : (!allowCustom && <div className="p-3 text-xs text-slate-400 text-center">無符合項目</div>)}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const TAG_COLORS = { red: 'bg-red-500 text-white', orange: 'bg-orange-400 text-white', green: 'bg-emerald-500 text-white', blue: 'bg-blue-500 text-white', purple: 'bg-purple-500 text-white', black: 'bg-slate-800 text-white' };
+
+        const STATUS_MAP = {
+            'pending': { label: '待處理', class: 'badge-pending' },
+            'confirmed': { label: '製作中', class: 'badge-confirmed' },
+            'completed': { label: '已完成', class: 'badge-completed' },
+            'cancelled': { label: '已取消', class: 'badge-cancelled' }
+        };
+
+        function App() {
+            const [user, setUser] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [activeTab, setActiveTab] = useState('orders'); // Default to orders
+            const [activeCategory, setActiveCategory] = useState('');
+            const [mobileOpen, setMobileOpen] = useState(false);
+            const [modal, setModal] = useState(null);
+            const [categories, setCategories] = useState([]);
+            const [products, setProducts] = useState([]);
+            const [addons, setAddons] = useState([]);
+            const [sets, setSets] = useState([]);
+            const [materials, setMaterials] = useState([]);
+            const [orders, setOrders] = useState([]);
+            const [coupons, setCoupons] = useState([]);
+            const [settings, setSettings] = useState({ statusMode: 'auto', openTime: '06:00', closeTime: '13:30', phone: '', address: '', mapsUrl: '', closedDays: [], announcements: ['', '', ''], specialDates: [], productTags: [], cloudinaryCloudName: '', cloudinaryUploadPreset: '', materialGroups: [], addonGroups: [], liffId: '', liffIdBrowse: '' });
+            
+            // Order Filters
+            const [orderFilter, setOrderFilter] = useState('all');
+
+            useEffect(() => {
+                const { auth } = window.firebase;
+                const { onAuthStateChanged } = window.authActions;
+                const unsubscribe = onAuthStateChanged(auth, u => { setUser(u); setLoading(false); });
+                return () => unsubscribe();
+            }, []);
+
+            useEffect(() => {
+                if (!user) return;
+                const { db, appId } = window.firebase;
+                const { collection, doc, onSnapshot } = window.firestore;
+                const unsubs = [];
+                const sub = (collName, setter) => {
+                    return onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', collName), (snap) => {
+                        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                        // Sort logic
+                        if (collName === 'categories' || collName === 'products' || collName === 'sets') data.sort((a,b) => a.sortOrder - b.sortOrder);
+                        if (collName === 'materials' || collName === 'addons') data.sort((a,b) => (a.sortOrder||0) - (b.sortOrder||0));
+                        if (collName === 'orders') data.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+                        if (collName === 'coupons') data.sort((a,b) => new Date(a.expiry) - new Date(b.expiry));
+                        
+                        setter(data);
+                    }, (err) => console.error(`Fetch error ${collName}:`, err));
+                };
+                
+                unsubs.push(sub('categories', (data) => { setCategories(data); if (data.length > 0 && !activeCategory) setActiveCategory(data[0].id); }));
+                unsubs.push(sub('products', setProducts));
+                unsubs.push(sub('sets', setSets));
+                unsubs.push(sub('addons', setAddons));
+                unsubs.push(sub('materials', setMaterials));
+                unsubs.push(sub('orders', setOrders));
+                unsubs.push(sub('coupons', setCoupons));
+                
+                unsubs.push(onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'config'), (d) => {
+                    if (d.exists()) setSettings(prev => ({ ...prev, ...d.data() }));
+                    else { onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'global'), (gd) => { if (gd.exists()) setSettings(prev => ({ ...prev, ...gd.data() })); }); }
+                }));
+                return () => unsubs.forEach(u => u && u());
+            }, [user, activeCategory]); 
+
+            // ... (dbOp, openCloudinaryWidget, etc. remain the same)
+            const dbOp = async (action, coll, id, data) => {
+                const { db, appId } = window.firebase;
+                const { doc, addDoc, updateDoc, deleteDoc, collection, setDoc } = window.firestore;
+                const colRef = collection(db, 'artifacts', appId, 'public', 'data', coll);
+                try {
+                    if (action === 'add') await addDoc(colRef, data);
+                    if (action === 'update') await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', coll, id), data);
+                    if (action === 'delete') await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', coll, id));
+                    if (action === 'set') await setDoc(doc(db, 'artifacts', appId, 'public', 'data', coll, id), data);
+                } catch(e) { console.error("DB Error:", e); alert("操作失敗：可能權限不足"); }
+            };
+
+            const openCloudinaryWidget = (callback) => {
+                if (!settings.cloudinaryCloudName || !settings.cloudinaryUploadPreset) {
+                    alert("請先至「營運設定」中設定 Cloudinary 圖片主機資訊");
+                    return;
+                }
+                const widget = window.cloudinary.createUploadWidget({
+                    cloudName: settings.cloudinaryCloudName,
+                    uploadPreset: settings.cloudinaryUploadPreset,
+                    sources: ['local', 'url', 'camera'],
+                    multiple: false,
+                    clientAllowedFormats: ['image'],
+                    maxImageFileSize: 2000000, 
+                    theme: 'purple',
+                    language: 'zh-TW',
+                    text: { "zh-TW": { "menu": { "files": "我的檔案" }, "local": { "browse": "瀏覽檔案", "dd_title_single": "拖曳圖片至此" } } }
+                }, (error, result) => {
+                    if (!error && result && result.event === "success") {
+                        callback(result.info.secure_url);
+                    }
+                });
+                widget.open();
+            };
+
+            const getDisplayPrice = (p) => { if (p.variants && p.variants.length > 0) { const min = Math.min(...p.variants.map(v => v.price)); return `$${min}起`; } return `$${p.price}`; };
+            
+            const checkMaterialAvailability = (product) => {
+                const outMaterials = materials.filter(m => m.isOut).map(m => m.id);
+                if (product.variants && product.variants.length > 0) {
+                    const availableVariants = product.variants.filter(v => {
+                        const variantMaterials = v.materials || [];
+                        return !variantMaterials.some(mId => outMaterials.includes(mId));
+                    });
+                    if (availableVariants.length === 0) return { status: 'all_out', label: '原料缺貨' };
+                    if (availableVariants.length < product.variants.length) return { status: 'partial', label: '部分缺貨' };
+                } else {
+                    const prodMaterials = product.materials || [];
+                    if (prodMaterials.some(mId => outMaterials.includes(mId))) return { status: 'all_out', label: '原料缺貨' };
+                }
+                return { status: 'ok', label: '' };
+            };
+
+            // ... (handleCloneProduct, handleCloneSet, handleBulkClose, handleSort, handleDelete, etc.)
+            const handleCloneProduct = async (product) => {
+                if(!confirm(`確定要複製「${product.name}」嗎？`)) return;
+                const { id, ...rest } = product;
+                const newProduct = { ...rest, name: `${product.name} (複製)` };
+                const currentList = products.filter(p => p.categoryId === product.categoryId);
+                const nextSortOrder = currentList.length > 0 ? Math.max(...currentList.map(p => p.sortOrder || 0)) + 1 : 0;
+                await dbOp('add', 'products', null, { ...newProduct, sortOrder: nextSortOrder });
+            };
+
+            const handleCloneSet = async (set) => {
+                if(!confirm(`確定要複製「${set.name}」嗎？`)) return;
+                const { id, ...rest } = set;
+                const newSet = { ...rest, name: `${set.name} (複製)` };
+                const nextSortOrder = sets.length > 0 ? Math.max(...sets.map(s => s.sortOrder || 0)) + 1 : 0;
+                await dbOp('add', 'sets', null, { ...newSet, sortOrder: nextSortOrder });
+            }
+
+            const handleBulkClose = async (catId) => {
+                const catName = categories.find(c => c.id === catId)?.name;
+                if(!confirm(`確定要將「${catName}」分類下的所有商品設為隱藏嗎？\n(此操作不可一鍵復原，需手動開啟)`)) return;
+                const targetProducts = products.filter(p => p.categoryId === catId && !p.isHidden);
+                const updates = targetProducts.map(p => dbOp('update', 'products', p.id, { isHidden: true }));
+                await Promise.all(updates);
+                alert(`已隱藏 ${updates.length} 項商品`);
+            };
+
+            const handleSort = async (type, id, direction) => {
+                let list = [];
+                let coll = '';
+                if(type === 'cat') { list = [...categories]; coll = 'categories'; }
+                else if(type === 'prod') { list = products.filter(p => p.categoryId === activeCategory).sort((a,b)=>a.sortOrder-b.sortOrder); coll = 'products'; }
+                else if(type === 'set') { list = [...sets]; coll = 'sets'; }
+
+                const index = list.findIndex(item => item.id === id);
+                if (index === -1) return;
+                const targetIndex = direction === 'up' ? index - 1 : index + 1;
+                if (targetIndex < 0 || targetIndex >= list.length) return;
+                const itemA = list[index];
+                const itemB = list[targetIndex];
+                if (itemA.sortOrder === itemB.sortOrder) {
+                    const updates = list.map((item, idx) => {
+                        let newSort = idx;
+                        if (idx === index) newSort = targetIndex;
+                        if (idx === targetIndex) newSort = index;
+                        return dbOp('update', coll, item.id, { sortOrder: newSort });
+                    });
+                    await Promise.all(updates);
+                } else {
+                    const tempOrder = itemA.sortOrder;
+                    await dbOp('update', coll, itemA.id, { sortOrder: itemB.sortOrder });
+                    await dbOp('update', coll, itemB.id, { sortOrder: tempOrder });
+                }
+            };
+
+            const handleDelete = (type, id) => {
+                if(!confirm('確定刪除？')) return;
+                const coll = type === 'cat' ? 'categories' : (type === 'prod' ? 'products' : (type === 'set' ? 'sets' : (type === 'mat' ? 'materials' : (type === 'addon' ? 'addons' : (type === 'coupon' ? 'coupons' : '')))));
+                if (!coll) return;
+                dbOp('delete', coll, id);
+                if(type === 'cat' && activeCategory === id && categories.length > 1) setActiveCategory(categories.find(c => c.id !== id)?.id);
+            };
+
+            // Group Management
+            const getGroups = (type) => type === 'materials' ? (settings.materialGroups || []) : (settings.addonGroups || []);
+            const saveGroups = (type, groups) => dbOp('update', 'settings', 'config', { [type === 'materials' ? 'materialGroups' : 'addonGroups']: groups });
+            
+            const handleRenameGroup = async (type, oldName, newName) => {
+                const { db, appId } = window.firebase;
+                const { collection, getDocs, writeBatch, query, where, doc } = window.firestore;
+                const collName = type === 'materials' ? 'materials' : 'addons';
+                const groups = getGroups(type);
+                const newGroups = groups.map(g => g.name === oldName ? { ...g, name: newName } : g);
+                await saveGroups(type, newGroups);
+                const q = query(collection(db, 'artifacts', appId, 'public', 'data', collName), where('category', '==', oldName));
+                const snap = await getDocs(q);
+                const batch = writeBatch(db);
+                snap.forEach(d => { batch.update(doc(db, 'artifacts', appId, 'public', 'data', collName, d.id), { category: newName }); });
+                await batch.commit();
+            };
+            const handleCloneGroup = async (type, groupName) => {
+                const { db, appId } = window.firebase;
+                const { collection, getDocs, addDoc, query, where } = window.firestore;
+                const collName = type === 'materials' ? 'materials' : 'addons';
+                const newGroupName = `${groupName} (複製)`;
+                const groups = getGroups(type);
+                await saveGroups(type, [...groups, { id: Date.now(), name: newGroupName, sortOrder: groups.length }]);
+                const q = query(collection(db, 'artifacts', appId, 'public', 'data', collName), where('category', '==', groupName));
+                const snap = await getDocs(q);
+                const promises = snap.docs.map(d => { const data = d.data(); return addDoc(collection(db, 'artifacts', appId, 'public', 'data', collName), { ...data, category: newGroupName }); });
+                await Promise.all(promises);
+            };
+            const handleDeleteGroup = async (type, groupName) => {
+                if(!confirm(`確定刪除群組「${groupName}」？\n注意：該群組下的項目將變為「未分類」`)) return;
+                const { db, appId } = window.firebase;
+                const { collection, getDocs, writeBatch, query, where, doc } = window.firestore;
+                const collName = type === 'materials' ? 'materials' : 'addons';
+                const groups = getGroups(type);
+                await saveGroups(type, groups.filter(g => g.name !== groupName));
+                const q = query(collection(db, 'artifacts', appId, 'public', 'data', collName), where('category', '==', groupName));
+                const snap = await getDocs(q);
+                const batch = writeBatch(db);
+                snap.forEach(d => { batch.update(doc(db, 'artifacts', appId, 'public', 'data', collName, d.id), { category: '未分類' }); });
+                await batch.commit();
+            };
+            const handleSortGroup = async (type, index, direction) => {
+                const groups = [...getGroups(type)];
+                if (direction === 'up' && index > 0) { [groups[index], groups[index-1]] = [groups[index-1], groups[index]]; } 
+                else if (direction === 'down' && index < groups.length - 1) { [groups[index], groups[index+1]] = [groups[index+1], groups[index]]; }
+                await saveGroups(type, groups);
+            };
+            const handleSortItem = async (coll, item, direction, itemList) => {
+                const index = itemList.findIndex(i => i.id === item.id);
+                if (index === -1) return;
+                const targetIndex = direction === 'up' ? index - 1 : index + 1;
+                if (targetIndex < 0 || targetIndex >= itemList.length) return;
+                const itemA = itemList[index];
+                const itemB = itemList[targetIndex];
+                if ((itemA.sortOrder || 0) === (itemB.sortOrder || 0)) {
+                     const batchUpdates = itemList.map((it, idx) => {
+                         let newSort = idx; if(idx === index) newSort = targetIndex; if(idx === targetIndex) newSort = index;
+                         return dbOp('update', coll, it.id, { sortOrder: newSort });
+                     });
+                     await Promise.all(batchUpdates);
+                } else {
+                    const tempOrder = itemA.sortOrder || 0;
+                    await dbOp('update', coll, itemA.id, { sortOrder: itemB.sortOrder || 0 });
+                    await dbOp('update', coll, itemB.id, { sortOrder: tempOrder });
+                }
+            };
+
+            const processGroups = (type) => {
+                const definedGroups = getGroups(type);
+                const items = type === 'materials' ? materials : addons;
+                const result = definedGroups.map(g => ({
+                    name: g.name,
+                    items: items.filter(i => i.category === g.name).sort((a,b) => (a.sortOrder||0) - (b.sortOrder||0))
+                }));
+                const definedNames = definedGroups.map(g => g.name);
+                const others = items.filter(i => !i.category || !definedNames.includes(i.category));
+                if (others.length > 0) {
+                    const otherGroups = {};
+                    others.forEach(i => { const c = i.category || '未分類'; if (!otherGroups[c]) otherGroups[c] = []; otherGroups[c].push(i); });
+                    Object.entries(otherGroups).forEach(([cName, cItems]) => {
+                        result.push({ name: cName, items: cItems.sort((a,b) => (a.sortOrder||0) - (b.sortOrder||0)), isUnregistered: true });
+                    });
+                }
+                return result;
+            };
+
+            // Publish Function
+            const handlePublish = async () => {
+                if(!confirm("確定要發布目前的設定到前台嗎？\n這將會更新客人的數位菜單內容。")) return;
+                try {
+                    const { setDoc, doc } = window.firestore;
+                    const { db, appId } = window.firebase;
+                    // Sanitize data to remove undefined values which Firestore rejects
+                    const cleanData = JSON.parse(JSON.stringify({ 
+                        settings, categories, products, sets, addons, materials, coupons, 
+                        updatedAt: new Date().toISOString() 
+                    }));
+                    
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'menu_display'), cleanData);
+                    await dbOp('set', 'settings', 'config', settings); 
+                    alert('✅ 發布成功！前台已更新。');
+                } catch(e) { 
+                    console.error("Publish Error:", e); 
+                    alert('發布失敗: ' + e.message); 
+                }
+            };
+
+            // Order Status Update
+            const handleUpdateOrderStatus = async (orderId, newStatus) => {
+                await dbOp('update', 'orders', orderId, { status: newStatus });
+            };
+
+            // Format Date
+            const formatDate = (dateStr) => {
+                if(!dateStr) return '-';
+                return new Date(dateStr).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            };
+
+            if (loading) return <div className="loading-overlay"><Icon name="Loader2" className="animate-spin" size={48} /><span>系統連線中...</span></div>;
+
+            if (!user) return ( /* ... Login UI ... */ 
+                <div className="h-screen flex items-center justify-center p-6 bg-[#F8FAFC]">
+                    <div className="max-w-sm w-full text-center space-y-8 animate-fade-in">
+                        <div className="w-20 h-20 bg-[#5B2274] rounded-[32px] flex items-center justify-center mx-auto shadow-2xl transition-transform hover:rotate-3">
+                            <Icon name="ShieldCheck" className="text-white" size={40} />
+                        </div>
+                        <div className="space-y-2">
+                            <h1 className="text-3xl font-[900] text-slate-900 tracking-tighter">城市漢堡 虎尾光復店</h1>
+                            <p className="text-slate-400 font-bold text-xs uppercase tracking-widest">Store Management v17.2</p>
+                        </div>
+                        <button onClick={() => window.authActions.signInWithPopup(window.firebase.auth, window.firebase.provider)} className="w-full py-5 bg-slate-900 text-white rounded-3xl font-[900] shadow-xl active:scale-95 transition-all flex items-center justify-center gap-3">
+                            <Icon name="LogIn" size={18} />
+                            使用 Google 帳號安全登入
+                        </button>
+                    </div>
+                </div>
+            );
+
+            return (
+                <div className="flex h-screen overflow-hidden bg-[#F8FAFC]">
+                    {/* Sidebar */}
+                    <aside className={`fixed inset-y-0 left-0 z-50 w-60 lg:w-72 glass-sidebar transform transition-transform duration-300 lg:translate-x-0 lg:static lg:block shadow-xl flex flex-col ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+                        <div className="p-6 pb-4">
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center backdrop-blur-sm shadow-inner text-white"><Icon name="ChefHat" size={18} /></div>
+                                <div><h1 className="font-black text-lg text-white leading-none">City Burger</h1><p className="text-[10px] font-bold text-purple-200 tracking-widest uppercase mt-1">CLOUD V17.2</p></div>
+                            </div>
+                        </div>
+                        <nav className="flex-1 px-3 space-y-1.5 mt-2 overflow-y-auto no-scrollbar">
+                            {[
+                                {id:'orders', label:'訂單管理', icon:'ClipboardList'},
+                                {id:'products',label:'餐點管理',icon:'UtensilsCrossed'},
+                                {id:'categories',label:'分類排序',icon:'ListOrdered'},
+                                {id:'sets',label:'套餐管理',icon:'Utensils'},
+                                {id:'customization',label:'客製化選項',icon:'Settings2'},
+                                {id:'materials',label:'原物料庫',icon:'PackageSearch'},
+                                {id:'coupons', label:'優惠券管理', icon:'Ticket'},
+                                {id:'settings',label:'營運設定',icon:'Sliders'}
+                            ].map(item => (
+                                <button key={item.id} onClick={() => { setActiveTab(item.id); setMobileOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-xs lg:text-sm lg:py-4 transition-all ${activeTab === item.id ? 'bg-white text-[#5B2274] shadow-md' : 'text-purple-200 hover:text-white hover:bg-white/10'}`}>
+                                    <Icon name={item.icon} size={20} /> {item.label}
+                                </button>
+                            ))}
+                        </nav>
+                        <div className="p-4 mt-auto border-t border-white/10 shrink-0">
+                            <button onClick={() => window.authActions.signOut(window.firebase.auth)} className="w-full py-2.5 bg-white/10 hover:bg-red-500/20 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all">
+                                <Icon name="LogOut" size={14} /> 登出系統
+                            </button>
+                        </div>
+                    </aside>
+
+                    {mobileOpen && <div className="fixed inset-0 bg-black/40 z-40 lg:hidden backdrop-blur-sm" onClick={() => setMobileOpen(false)} />}
+
+                    <main className="flex-1 h-full overflow-y-auto no-scrollbar relative">
+                        {/* Mobile Header */}
+                        <div className="lg:hidden sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200 px-4 h-14 flex items-center justify-between">
+                            <span className="font-black text-[#5B2274] text-base">City Burger</span>
+                            <button onClick={() => setMobileOpen(true)} className="p-2 bg-slate-100 rounded-lg text-slate-600"><Icon name="Menu" size={20} /></button>
+                        </div>
+
+                        <div className="max-w-6xl lg:max-w-7xl mx-auto px-6 lg:px-10 py-8 space-y-6 pb-24">
+                            
+                            {/* Order Management Tab */}
+                            {activeTab === 'orders' && (
+                                <div className="animate-fade-in space-y-5">
+                                    <div className="flex justify-between items-center">
+                                        <h2 className="text-2xl font-[900] text-slate-800 tracking-tight">訂單管理</h2>
+                                        <div className="text-sm font-bold text-slate-500">共 {orders.length} 筆訂單</div>
+                                    </div>
+                                    
+                                    <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+                                        {[
+                                            {id: 'all', label: '全部'},
+                                            {id: 'pending', label: '待處理'},
+                                            {id: 'confirmed', label: '製作中'},
+                                            {id: 'completed', label: '已完成'},
+                                            {id: 'cancelled', label: '已取消'}
+                                        ].map(f => (
+                                            <button key={f.id} onClick={() => setOrderFilter(f.id)} className={`px-4 py-2 rounded-xl font-bold text-sm whitespace-nowrap transition-all ${orderFilter === f.id ? 'bg-[#5B2274] text-white shadow-md' : 'bg-white text-slate-500 border border-slate-200'}`}>
+                                                {f.label} ({f.id === 'all' ? orders.length : orders.filter(o => o.status === f.id).length})
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        {orders.filter(o => orderFilter === 'all' || o.status === orderFilter).map(order => (
+                                            <div key={order.id} className="glass-panel p-5 rounded-2xl flex flex-col lg:flex-row gap-6 hover:shadow-md transition-shadow">
+                                                <div className="flex-1 space-y-3">
+                                                    <div className="flex justify-between items-start">
+                                                        <div>
+                                                            <div className="flex items-center gap-2 mb-1">
+                                                                <span className="text-xs font-black bg-slate-100 text-slate-500 px-2 py-0.5 rounded">#{order.orderId}</span>
+                                                                <span className={`text-xs font-bold px-2 py-0.5 rounded ${STATUS_MAP[order.status]?.class || 'bg-gray-100'}`}>{STATUS_MAP[order.status]?.label || order.status}</span>
+                                                            </div>
+                                                            <h3 className="font-[800] text-lg text-slate-800">{order.userInfo?.name} <span className="text-base text-slate-400 font-medium">{order.userInfo?.phone}</span></h3>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <div className="font-[900] text-xl text-[#5B2274]">${order.totalPrice}</div>
+                                                            <div className="text-xs font-bold text-slate-400">{formatDate(order.createdAt)}</div>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-2">
+                                                        <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
+                                                            <Icon name="Clock" size={16} className="text-[#5B2274]" />
+                                                            <span>取餐時間：{order.userInfo?.pickupDate} {order.userInfo?.pickupTime}</span>
+                                                        </div>
+                                                        <div className="border-t border-slate-200 my-2"></div>
+                                                        <div className="space-y-1">
+                                                            {order.items?.map((item, idx) => (
+                                                                <div key={idx} className="flex justify-between text-sm">
+                                                                    <span className="font-bold text-slate-700">{item.qty}x {item.name} <span className="text-slate-400 font-normal text-xs">{item.variantName ? `(${item.variantName})` : ''}</span></span>
+                                                                    <span className="text-slate-500 font-medium">${item.totalPrice}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                        {order.discountAmount > 0 && (
+                                                            <div className="flex justify-between text-xs font-bold text-red-500 pt-1 border-t border-slate-200 border-dashed">
+                                                                <span>折扣 ({order.discountApplied})</span>
+                                                                <span>-${order.discountAmount}</span>
+                                                            </div>
+                                                        )}
+                                                        {order.items?.some(i => i.note) && (
+                                                            <div className="text-xs text-orange-600 bg-orange-50 p-2 rounded mt-2 font-bold">
+                                                                備註: {order.items.map(i => i.note).filter(Boolean).join(', ')}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                
+                                                <div className="flex lg:flex-col gap-2 justify-center lg:w-40 border-t lg:border-t-0 lg:border-l border-slate-100 pt-4 lg:pt-0 lg:pl-6">
+                                                    {order.status === 'pending' && (
+                                                        <>
+                                                            <Button size="small" icon="CheckCircle2" className="flex-1 bg-blue-500 hover:bg-blue-600 shadow-blue-200" onClick={() => handleUpdateOrderStatus(order.id, 'confirmed')}>接單製作</Button>
+                                                            <Button size="small" variant="danger" icon="XCircle" className="flex-1" onClick={() => { if(confirm('確定拒單/取消？')) handleUpdateOrderStatus(order.id, 'cancelled'); }}>取消訂單</Button>
+                                                        </>
+                                                    )}
+                                                    {order.status === 'confirmed' && (
+                                                        <Button size="small" icon="Check" className="flex-1 bg-emerald-500 hover:bg-emerald-600 shadow-emerald-200" onClick={() => handleUpdateOrderStatus(order.id, 'completed')}>完成訂單</Button>
+                                                    )}
+                                                    {order.status !== 'cancelled' && order.status !== 'pending' && (
+                                                        <Button size="small" variant="secondary" icon="X" className="flex-1" onClick={() => { if(confirm('確定補取消？')) handleUpdateOrderStatus(order.id, 'cancelled'); }}>取消訂單</Button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {orders.filter(o => orderFilter === 'all' || o.status === orderFilter).length === 0 && (
+                                            <div className="text-center py-12 text-slate-400 font-bold bg-white/50 rounded-2xl border-2 border-dashed border-slate-200">
+                                                無符合條件的訂單
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Coupon Management Tab */}
+                            {activeTab === 'coupons' && (
+                                <div className="animate-fade-in space-y-5">
+                                    <div className="flex justify-between items-center">
+                                        <h2 className="text-2xl font-[900] text-slate-800 tracking-tight">優惠券管理</h2>
+                                        <Button onClick={() => setModal({type: 'coupon', data: { code: '', title: '', desc: '', discount: 0, minSpend: 0, expiry: '' }})} icon="Plus">新增優惠券</Button>
+                                    </div>
+                                    
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                                        {coupons.map((c) => {
+                                            const isExpired = new Date(c.expiry) < new Date();
+                                            return (
+                                                <div key={c.id} className={`glass-panel p-5 rounded-2xl relative group ${isExpired ? 'opacity-60 grayscale' : ''}`}>
+                                                    <div className="flex justify-between items-start mb-3">
+                                                        <div className="bg-purple-50 text-[#5B2274] px-3 py-1 rounded-lg font-black text-sm tracking-wider">{c.code}</div>
+                                                        <div className={`text-xs font-bold px-2 py-1 rounded ${isExpired ? 'bg-red-100 text-red-500' : 'bg-green-100 text-green-600'}`}>
+                                                            {isExpired ? '已過期' : '有效'}
+                                                        </div>
+                                                    </div>
+                                                    <h3 className="font-[800] text-lg text-slate-800 mb-1">{c.title}</h3>
+                                                    <p className="text-sm text-slate-500 mb-4 h-10 overflow-hidden">{c.desc}</p>
+                                                    
+                                                    <div className="flex justify-between items-center text-sm font-bold text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100 mb-4">
+                                                        <div className="flex flex-col">
+                                                            <span className="text-[10px] text-slate-400 uppercase">折扣金額</span>
+                                                            <span className="text-red-500 text-lg">-${c.discount}</span>
+                                                        </div>
+                                                        <div className="w-px h-8 bg-slate-200"></div>
+                                                        <div className="flex flex-col text-right">
+                                                            <span className="text-[10px] text-slate-400 uppercase">最低消費</span>
+                                                            <span>${c.minSpend}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-xs font-bold text-slate-400 mb-4 flex items-center gap-1">
+                                                        <Icon name="Calendar" size={14} /> 到期日：{c.expiry}
+                                                    </div>
+
+                                                    <div className="flex gap-2 border-t border-slate-100 pt-3">
+                                                        <Button size="small" variant="secondary" className="flex-1" icon="Edit3" onClick={() => setModal({type: 'coupon', data: c})}>編輯</Button>
+                                                        <Button size="small" variant="danger" className="flex-1" icon="Trash2" onClick={() => handleDelete('coupon', c.id)}>刪除</Button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                        {coupons.length === 0 && (
+                                            <div className="col-span-full text-center py-12 text-slate-400 font-bold bg-white/50 rounded-2xl border-2 border-dashed border-slate-200">
+                                                尚未建立優惠券
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Products Tab */}
+                            {activeTab === 'products' && (
+                                <div className="animate-fade-in space-y-5">
+                                    <div className="flex justify-between items-center">
+                                        <h2 className="text-2xl font-[900] text-slate-800 tracking-tight">餐點管理</h2>
+                                        <div className="flex gap-2">
+                                            <Button variant="secondary" onClick={() => setModal({type: 'tags'})} icon="Tag">標籤設定</Button>
+                                            <Button onClick={() => setModal({type: 'prod', data: { name: '', price: 0, categoryId: activeCategory, isHidden: false, variants: [], materials: [], sideGroups: [], allowSets: [], desc: '', note: '', allowAddons: [], tags: [] }})} icon="Plus">新增</Button>
+                                        </div>
+                                    </div>
+                                    {/* ... Category filter buttons ... */}
+                                    <div className="flex items-center gap-2 py-1">
+                                        <div className="flex-1 overflow-x-auto no-scrollbar flex gap-2">
+                                            {categories.map(c => (<button key={c.id} onClick={() => setActiveCategory(c.id)} className={`px-5 py-2.5 rounded-xl font-bold text-xs lg:text-sm whitespace-nowrap transition-all shadow-sm ${activeCategory === c.id ? 'bg-[#5B2274] text-white shadow-purple-200' : 'bg-white text-slate-500 hover:text-[#5B2274] hover:bg-purple-50'}`}>{c.name}</button>))}
+                                        </div>
+                                        {activeCategory && <button onClick={() => handleBulkClose(activeCategory)} className="flex-shrink-0 w-10 h-10 rounded-xl bg-red-100 text-red-500 flex items-center justify-center hover:bg-red-500 hover:text-white transition-all shadow-sm" title="本類別一鍵全關"><Icon name="Power" size={18} /></button>}
+                                    </div>
+                                    
+                                    {/* Products Grid */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                                        {products.filter(p => p.categoryId === activeCategory).sort((a,b) => a.sortOrder - b.sortOrder).map((p, index) => {
+                                            const matCheck = checkMaterialAvailability(p);
+                                            const isMaterialOut = matCheck.status === 'all_out';
+                                            const isPartialOut = matCheck.status === 'partial';
+                                            
+                                            return (
+                                                <div key={p.id} className={`glass-panel p-4 lg:p-6 rounded-2xl relative group hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 ${p.isHidden || isMaterialOut ? 'opacity-60 grayscale' : ''}`}>
+                                                    {/* Card Content ... */}
+                                                    <div className="flex gap-4 mb-4">
+                                                        <div className="w-16 h-16 lg:w-20 lg:h-20 rounded-xl bg-slate-100 object-cover overflow-hidden border border-slate-100 shrink-0 relative">{p.image ? <img src={p.image} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><Icon name="Image" size={24} /></div>}</div>
+                                                        <div className="flex-1 min-w-0 flex flex-col justify-center">
+                                                            <h4 className="font-[800] text-base lg:text-lg text-slate-800 truncate mb-0.5">{p.name}</h4>
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <span className="font-[900] text-lg lg:text-xl text-[#5B2274]">{getDisplayPrice(p)}</span>
+                                                                {p.variants?.length > 0 && <span className="text-[10px] bg-purple-50 text-purple-600 px-1 rounded">多規格</span>}
+                                                                {isMaterialOut && <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold">原料缺貨</span>}
+                                                                {isPartialOut && <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded font-bold">部分缺貨</span>}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                                                        <div className="flex gap-1"><SortButton direction="up" disabled={index === 0} onClick={() => handleSort('prod', p.id, 'up')} /><SortButton direction="down" disabled={index === products.filter(x=>x.categoryId===activeCategory).length - 1} onClick={() => handleSort('prod', p.id, 'down')} /></div>
+                                                        <div className="flex gap-2 items-center">
+                                                            <button onClick={() => handleCloneProduct(p)} className="p-2 lg:p-3 rounded-lg bg-blue-50 text-blue-500 hover:bg-blue-500 hover:text-white transition-all" title="複製商品"><Icon name="Copy" size={16} /></button>
+                                                            <button onClick={() => setModal({type: 'prod', data: p})} className="p-2 lg:p-3 rounded-lg bg-purple-50 text-[#5B2274] hover:bg-[#5B2274] hover:text-white transition-all"><Icon name="Edit3" size={16} /></button>
+                                                            <button onClick={() => handleDelete('prod', p.id)} className="p-2 lg:p-3 rounded-lg bg-red-50 text-red-400 hover:bg-red-500 hover:text-white transition-all"><Icon name="Trash2" size={16} /></button>
+                                                            <div className="w-px h-6 bg-slate-200 mx-1"></div>
+                                                            <ToggleSwitch checked={!p.isHidden} onChange={(checked) => dbOp('update', 'products', p.id, { isHidden: !checked })} />
+                                                        </div>
+                                                    </div>
+                                                    {p.sideGroups?.length > 0 && <div className="absolute top-3 right-3 text-amber-400 bg-amber-50 rounded-full p-0.5"><Icon name="Sparkles" size={12}/></div>}
+                                                    <div className="absolute top-2 left-2 flex gap-1 flex-wrap">
+                                                        {p.tags?.map(tId => {
+                                                            const tag = settings.productTags?.find(t => t.id === tId);
+                                                            return tag ? <span key={tId} className={`text-[9px] px-1.5 py-0.5 rounded font-bold shadow-sm ${TAG_COLORS[tag.color]}`}>{tag.label}</span> : null;
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    {products.filter(p => p.categoryId === activeCategory).length === 0 && <div className="p-12 border-2 border-dashed border-slate-200 rounded-[24px] text-center text-slate-400 font-bold bg-white/50">此分類暫無餐點</div>}
+                                </div>
+                            )}
+
+                            {/* Materials & Customization Tabs (Using Group Logic) */}
+                            {['materials', 'customization'].includes(activeTab) && (
+                                <div className="animate-fade-in space-y-6">
+                                    <div className="flex justify-between items-center">
+                                        <h2 className="text-2xl font-[900] text-slate-800 tracking-tight">{activeTab === 'materials' ? '原物料庫存' : '客製化選項'}</h2>
+                                        <div className="flex gap-2">
+                                            <Button variant="secondary" icon="Settings" onClick={() => setModal({ type: 'group_mgmt', dataType: activeTab === 'materials' ? 'materials' : 'addons' })}>管理組別</Button>
+                                            <Button onClick={() => setModal({ type: 'item_editor', dataType: activeTab === 'materials' ? 'materials' : 'addons', data: { name: '新項目', category: '未分類' } })} icon="Plus">新增項目</Button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="space-y-6">
+                                        {processGroups(activeTab).map((group, gIdx) => (
+                                            <div key={group.name} className="space-y-3">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-1.5 h-6 bg-[#5B2274] rounded-full"></div>
+                                                    <h3 className="font-[900] text-slate-600 text-lg">{group.name}</h3>
+                                                    {group.isUnregistered && <span className="bg-slate-100 text-slate-400 text-[10px] px-2 py-0.5 rounded-full font-bold">未註冊組別</span>}
+                                                </div>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                                    {group.items.map((item, iIdx) => (
+                                                        <div key={item.id} className={`glass-panel p-4 rounded-xl flex items-center justify-between gap-3 ${item.isOut ? 'border-red-200 bg-red-50/50' : ''}`}>
+                                                            <div className="flex-1 min-w-0 flex items-center gap-2">
+                                                                <div className="flex flex-col gap-0.5">
+                                                                    <SortButton direction="up" onClick={()=>handleSortItem(activeTab === 'materials' ? 'materials' : 'addons', item, 'up', group.items)} disabled={iIdx===0} />
+                                                                    <SortButton direction="down" onClick={()=>handleSortItem(activeTab === 'materials' ? 'materials' : 'addons', item, 'down', group.items)} disabled={iIdx===group.items.length-1} />
+                                                                </div>
+                                                                <div>
+                                                                    <div className={`font-bold ${item.isOut ? 'text-red-500 line-through' : 'text-slate-700'}`}>{item.name}</div>
+                                                                    {activeTab === 'customization' && <div className="text-xs text-slate-400">+${item.price}</div>}
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex items-center gap-2 shrink-0">
+                                                                {activeTab === 'materials' && <ToggleSwitch checked={!item.isOut} variant="danger" onChange={(checked) => dbOp('update', 'materials', item.id, { isOut: !checked })} />}
+                                                                <button onClick={() => setModal({ type: 'item_editor', dataType: activeTab === 'materials' ? 'materials' : 'addons', data: item })} className="p-1.5 text-slate-400 hover:text-[#5B2274]"><Icon name="Edit3" size={16}/></button>
+                                                                <button onClick={() => handleDelete(activeTab === 'materials' ? 'mat' : 'addon', item.id)} className="p-1.5 text-slate-300 hover:text-red-500"><Icon name="Trash2" size={16}/></button>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                    {group.items.length === 0 && <div className="text-xs text-slate-300 italic p-2">此組別無項目</div>}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    {(materials.length === 0 && activeTab === 'materials') && <div className="text-center py-10 text-slate-400">尚未建立原物料</div>}
+                                    {(addons.length === 0 && activeTab === 'customization') && <div className="text-center py-10 text-slate-400">尚未建立選項</div>}
+                                </div>
+                            )}
+
+                            {/* Categories & Sets Tabs (Similar structure) */}
+                            {activeTab === 'categories' && (
+                                <div className="animate-fade-in space-y-5">
+                                    <div className="flex justify-between items-center"><h2 className="text-2xl font-[900] text-slate-800 tracking-tight">分類排序</h2><Button onClick={() => setModal({type: 'cat', data: { name: '', sortOrder: categories.length + 1 }})} icon="Plus">新增</Button></div>
+                                    <div className="grid grid-cols-1 gap-3">
+                                        {categories.map((c, i) => (
+                                            <div key={c.id} className="glass-panel p-4 lg:p-5 rounded-2xl flex items-center gap-5 group hover:border-[#5B2274]/30 transition-all">
+                                                <div className="w-10 h-10 lg:w-12 lg:h-12 shrink-0 bg-white rounded-xl flex items-center justify-center font-[900] text-base text-[#5B2274] shadow-sm border border-slate-100">{i + 1}</div>
+                                                <div className="flex-1"><h3 className="font-[800] text-lg lg:text-xl text-slate-800">{c.name}</h3></div>
+                                                <div className="flex items-center gap-2">
+                                                    <div className="flex gap-1 mr-2"><SortButton direction="up" disabled={i === 0} onClick={() => handleSort('cat', c.id, 'up')} /><SortButton direction="down" disabled={i === categories.length - 1} onClick={() => handleSort('cat', c.id, 'down')} /></div>
+                                                    <button onClick={() => setModal({type: 'cat', data: c})} className="p-2 lg:p-3 rounded-lg bg-slate-50 text-slate-500 hover:bg-[#5B2274] hover:text-white transition-all"><Icon name="Edit3" size={18}/></button>
+                                                    <button onClick={() => handleDelete('cat', c.id)} className="p-2 lg:p-3 rounded-lg bg-red-50 text-red-400 hover:bg-red-500 hover:text-white transition-all"><Icon name="Trash2" size={18}/></button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'sets' && (
+                                <div className="animate-fade-in space-y-5">
+                                    <div className="flex justify-between items-center"><h2 className="text-2xl font-[900] text-slate-800 tracking-tight">套餐管理</h2><Button onClick={() => setModal({type: 'set', data: { name: '', price: 0, contents: [], image: '' }})} icon="Plus">建立套餐</Button></div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                                        {sets.map((s, index) => (
+                                            <div key={s.id} className={`glass-panel p-4 lg:p-6 rounded-2xl relative group hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 ${s.isHidden ? 'opacity-60 grayscale' : ''}`}>
+                                                <div className="flex gap-4 mb-4">
+                                                    <div className="w-16 h-16 lg:w-20 lg:h-20 rounded-xl bg-slate-100 object-cover overflow-hidden border border-slate-100 shrink-0 relative">
+                                                        {s.image ? <img src={s.image} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><Icon name="Image" size={24} /></div>}
+                                                    </div>
+                                                    <div className="flex-1 min-w-0 flex flex-col justify-center">
+                                                        <h4 className="font-[800] text-base lg:text-lg text-slate-800 truncate mb-0.5">{s.name}</h4>
+                                                        <div className="flex items-center gap-2"><span className="font-[900] text-lg lg:text-xl text-[#5B2274]">+${s.price}</span></div>
+                                                    </div>
+                                                </div>
+                                                <div className="bg-slate-50 p-2 rounded-lg mb-3">
+                                                    <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">內容物</p>
+                                                    <div className="space-y-1">
+                                                        {s.contents?.slice(0, 3).map((c, i) => {
+                                                            let contentText = c.label;
+                                                            if (c.type === 'fixed') {
+                                                                const p = products.find(prod => prod.id === c.productId);
+                                                                if (p) contentText = `${p.name}${c.variantName ? ` (${c.variantName})` : ''}`;
+                                                            } else if (c.type === 'category') {
+                                                                const cat = categories.find(cat => cat.id === c.categoryId);
+                                                                const def = products.find(prod => prod.id === c.defaultProductId);
+                                                                contentText = `選: ${cat?.name || '未知分類'}${def ? ` (預設: ${def.name})` : ''}`;
+                                                            }
+                                                            return <div key={i} className="text-xs text-slate-600 font-bold truncate">• {contentText}</div>;
+                                                        })}
+                                                        {(s.contents?.length || 0) > 3 && <div className="text-[10px] text-slate-400 pl-2">...還有 {s.contents.length - 3} 項</div>}
+                                                        {(s.contents?.length || 0) === 0 && <span className="text-xs text-slate-300">無內容</span>}
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                                                    <div className="flex gap-1"><SortButton direction="up" disabled={index === 0} onClick={() => handleSort('set', s.id, 'up')} /><SortButton direction="down" disabled={index === sets.length - 1} onClick={() => handleSort('set', s.id, 'down')} /></div>
+                                                    <div className="flex gap-2 items-center">
+                                                        <button onClick={() => handleCloneSet(s)} className="p-2 lg:p-3 rounded-lg bg-blue-50 text-blue-500 hover:bg-blue-500 hover:text-white transition-all"><Icon name="Copy" size={16} /></button>
+                                                        <button onClick={() => setModal({type: 'set', data: s})} className="p-2 lg:p-3 rounded-lg bg-purple-50 text-[#5B2274] hover:bg-[#5B2274] hover:text-white transition-all"><Icon name="Edit3" size={16} /></button>
+                                                        <button onClick={() => handleDelete('set', s.id)} className="p-2 lg:p-3 rounded-lg bg-red-50 text-red-400 hover:bg-red-500 hover:text-white transition-all"><Icon name="Trash2" size={16} /></button>
+                                                        <div className="w-px h-6 bg-slate-200 mx-1"></div>
+                                                        <ToggleSwitch checked={!s.isHidden} onChange={(checked) => dbOp('update', 'sets', s.id, { isHidden: !checked })} />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Settings Tab (Updated with Publish Button) */}
+                            {activeTab === 'settings' && (
+                                <div className="animate-fade-in space-y-5">
+                                    <div className="flex justify-between items-center">
+                                        <h2 className="text-2xl font-[900] text-slate-800 tracking-tight">營運設定</h2>
+                                        
+                                        {/* Publish Button */}
+                                        <Button 
+                                            icon="Send" 
+                                            className="bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200"
+                                            onClick={handlePublish}
+                                        >
+                                            儲存並發布到前台
+                                        </Button>
+                                    </div>
+                                    
+                                    {/* LINE Settings Section */}
+                                    <div className="glass-panel p-6 lg:p-8 rounded-2xl space-y-4">
+                                        <div className="flex items-center gap-2 text-[#06C755] mb-1">
+                                            <Icon name="MessageCircle" size={18}/>
+                                            <h3 className="font-[800] text-base lg:text-lg">LINE 設定</h3>
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] lg:text-xs font-bold text-slate-400">LIFF ID (點餐用)</label>
+                                                <input 
+                                                    className="w-full input-compact rounded-lg font-bold" 
+                                                    value={settings.liffId || ''} 
+                                                    onChange={e=>setSettings({...settings, liffId: e.target.value})} 
+                                                    placeholder="例如: 1657xxxxxx-xxxxxx" 
+                                                />
+                                                <p className="text-[10px] text-slate-400 mt-1">
+                                                    需具備 chat_message.write 權限，用於傳送訂單。
+                                                </p>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] lg:text-xs font-bold text-slate-400">LIFF ID (純瀏覽/菜單用)</label>
+                                                <input 
+                                                    className="w-full input-compact rounded-lg font-bold" 
+                                                    value={settings.liffIdBrowse || ''} 
+                                                    onChange={e=>setSettings({...settings, liffIdBrowse: e.target.value})} 
+                                                    placeholder="例如: 1657xxxxxx-yyyyyy" 
+                                                />
+                                                <p className="text-[10px] text-slate-400 mt-1">
+                                                    用於隱藏網址純瀏覽，不需傳送訊息權限。
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="glass-panel p-6 lg:p-8 rounded-2xl space-y-4">
+                                        <div className="flex items-center gap-2 text-[#5B2274] mb-1"><Icon name="Cloud" size={18}/><h3 className="font-[800] text-base lg:text-lg">圖片主機設定 (Cloudinary)</h3></div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="space-y-1"><label className="text-[10px] lg:text-xs font-bold text-slate-400">Cloud Name</label><input className="w-full input-compact rounded-lg font-bold" value={settings.cloudinaryCloudName || ''} onChange={e=>setSettings({...settings, cloudinaryCloudName: e.target.value})} placeholder="例如: demo" /></div>
+                                            <div className="space-y-1"><label className="text-[10px] lg:text-xs font-bold text-slate-400">Upload Preset (Unsigned)</label><input className="w-full input-compact rounded-lg font-bold" value={settings.cloudinaryUploadPreset || ''} onChange={e=>setSettings({...settings, cloudinaryUploadPreset: e.target.value})} placeholder="例如: my_preset" /></div>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                        <div className="glass-panel p-6 lg:p-8 rounded-2xl space-y-5">
+                                            <div className="flex items-center gap-2 text-[#5B2274] mb-1"><Icon name="Store" size={18}/><h3 className="font-[800] text-base lg:text-lg">基本資料 & 營運模式</h3></div>
+                                            <div className="bg-slate-100 p-1 rounded-xl flex gap-1">{['auto', 'open', 'closed'].map(mode => (<button key={mode} onClick={()=>setSettings({...settings, statusMode: mode})} className={`flex-1 py-2.5 rounded-lg text-xs lg:text-sm font-bold transition-all ${settings.statusMode === mode ? 'bg-white text-[#5B2274] shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>{mode === 'auto' ? '自動' : (mode === 'open' ? '營業' : '休息')}</button>))}</div>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-1"><label className="text-[10px] lg:text-xs font-bold text-slate-400">開店</label><div className="time-input-wrapper"><input type="time" className="input-compact rounded-lg bg-white font-bold text-slate-700" value={settings.openTime} onChange={e=>setSettings({...settings, openTime: e.target.value})} /></div></div>
+                                                <div className="space-y-1"><label className="text-[10px] lg:text-xs font-bold text-slate-400">打烊</label><div className="time-input-wrapper"><input type="time" className="input-compact rounded-lg bg-white font-bold text-slate-700" value={settings.closeTime} onChange={e=>setSettings({...settings, closeTime: e.target.value})} /></div></div>
+                                            </div>
+                                            <div className="space-y-3"><div className="space-y-1"><label className="text-[10px] lg:text-xs font-bold text-slate-400">門市電話</label><input className="w-full input-compact rounded-lg font-bold" value={settings.phone} onChange={e=>setSettings({...settings, phone: e.target.value})} /></div><div className="space-y-1"><label className="text-[10px] lg:text-xs font-bold text-slate-400">門市地址</label><input className="w-full input-compact rounded-lg font-bold" value={settings.address} onChange={e=>setSettings({...settings, address: e.target.value})} /></div><div className="space-y-1"><label className="text-[10px] lg:text-xs font-bold text-slate-400">Google 地圖連結</label><input className="w-full input-compact rounded-lg font-bold" value={settings.mapsUrl} onChange={e=>setSettings({...settings, mapsUrl: e.target.value})} placeholder="https://maps..." /></div></div>
+                                        </div>
+                                        <div className="glass-panel p-6 lg:p-8 rounded-2xl space-y-5">
+                                            <div className="flex items-center gap-2 text-[#5B2274] mb-1"><Icon name="CalendarOff" size={18}/><h3 className="font-[800] text-base lg:text-lg">公休與特殊日程</h3></div>
+                                            <div className="flex justify-between gap-2">{['日','一','二','三','四','五','六'].map((d, i) => (<button key={i} onClick={() => { const newDays = settings.closedDays.includes(i) ? settings.closedDays.filter(d => d !== i) : [...settings.closedDays, i]; setSettings({...settings, closedDays: newDays}); }} className={`w-9 h-9 lg:w-12 lg:h-12 rounded-full text-xs lg:text-sm font-bold flex items-center justify-center transition-all border ${settings.closedDays.includes(i) ? 'bg-slate-800 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-400 hover:border-[#5B2274]'}`}>{d}</button>))}</div>
+                                            <div className="space-y-2 max-h-32 overflow-y-auto no-scrollbar pt-2">{settings.specialDates.length===0 && <div className="text-center text-xs text-slate-400 border border-dashed rounded-lg py-3 cursor-pointer hover:bg-slate-50" onClick={()=>setSettings({...settings, specialDates: [...settings.specialDates, { id: Date.now(), date: '', type: 'closed' }]})}>+ 新增特殊排程</div>}{settings.specialDates.map((sd, idx) => (<div key={sd.id} className="flex flex-col gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200"><div className="flex items-center gap-2"><input type="date" className="input-compact py-1 px-2 rounded bg-white text-xs lg:text-sm font-bold flex-1" value={sd.date} onChange={e => { const n = [...settings.specialDates]; n[idx].date = e.target.value; setSettings({...settings, specialDates: n}); }} /><select className="input-compact py-1 px-2 rounded bg-white text-xs lg:text-sm font-bold w-24 shrink-0" value={sd.type} onChange={e => { const n = [...settings.specialDates]; n[idx].type = e.target.value; setSettings({...settings, specialDates: n}); }}><option value="closed">店休</option><option value="open">營業</option></select><button onClick={() => setSettings({...settings, specialDates: settings.specialDates.filter((_, i) => i !== idx)})} className="ml-auto text-slate-400 hover:text-red-500 shrink-0"><Icon name="X" size={16}/></button></div><input type="text" placeholder="備註說明 (選填)" value={sd.note || ''} onChange={e => { const n = [...settings.specialDates]; n[idx].note = e.target.value; setSettings({...settings, specialDates: n}); }} className="input-compact py-1 px-2 bg-white text-xs font-bold rounded" /></div>))}</div>
+                                        </div>
+                                    </div>
+                                    <div className="glass-panel p-6 lg:p-8 rounded-2xl space-y-4">
+                                        <div className="flex items-center gap-2 text-[#5B2274] mb-1"><Icon name="Megaphone" size={18}/><h3 className="font-[800] text-base lg:text-lg">公告系統</h3></div>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">{settings.announcements.map((ann, i) => (<div key={i} className="space-y-1"><label className="text-[10px] lg:text-xs font-bold text-slate-400 uppercase">公告 {i+1}</label><input className="w-full input-compact rounded-lg font-bold" value={ann} onChange={e => { const n = [...settings.announcements]; n[i] = e.target.value; setSettings({...settings, announcements: n}); }} placeholder="輸入..." /></div>))}</div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </main>
+
+                    {/* Modals */}
+                    {modal && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setModal(null)} />
+                            <div className="bg-white w-full max-w-xl max-h-[90vh] rounded-2xl shadow-2xl relative z-10 flex flex-col overflow-hidden animate-fade-in">
+                                {/* ... Modal Header ... */}
+                                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white"><h3 className="text-lg font-[900] text-slate-800">{modal.type === 'cat' ? '分類設定' : (modal.type === 'prod' ? '餐點詳情' : (modal.type === 'tags' ? '商品標籤設定' : (modal.type === 'group_mgmt' ? '組別管理' : (modal.type === 'item_editor' ? '項目編輯' : (modal.type === 'set' ? '套餐配置' : (modal.type === 'coupon' ? '優惠券設定' : '設定'))))))}</h3><button onClick={() => setModal(null)} className="w-8 h-8 rounded-full bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-500"><Icon name="X" size={18}/></button></div>
+                                
+                                <div className="p-6 overflow-y-auto no-scrollbar space-y-6 bg-slate-50/50">
+                                    {/* ... Modal Contents ... */}
+                                    {modal.type === 'group_mgmt' && (
+                                        <div className="space-y-4">
+                                            <div className="p-4 bg-blue-50 text-blue-800 rounded-xl text-xs lg:text-sm font-medium flex items-start gap-2 border border-blue-100">
+                                                <Icon name="Info" size={18} className="mt-0.5 shrink-0"/>
+                                                <p>在此管理組別。您可以排序、重新命名或刪除組別。修改名稱時，該組別下的所有項目會自動更新。</p>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <div className="flex gap-2 pb-2 border-b border-slate-200">
+                                                    <input id="newGroupName" className="input-compact flex-1" placeholder="新增組別名稱..." />
+                                                    <Button size="small" onClick={()=>{
+                                                        const name = document.getElementById('newGroupName').value;
+                                                        if(name) {
+                                                            const groups = getGroups(modal.dataType);
+                                                            saveGroups(modal.dataType, [...groups, { id: Date.now(), name, sortOrder: groups.length }]);
+                                                            document.getElementById('newGroupName').value = '';
+                                                        }
+                                                    }}>新增</Button>
+                                                </div>
+                                                <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                                                    {getGroups(modal.dataType).map((g, idx) => (
+                                                        <div key={g.id} className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 flex items-center gap-2">
+                                                            <div className="flex flex-col gap-0.5">
+                                                                <SortButton direction="up" disabled={idx === 0} onClick={() => handleSortGroup(modal.dataType, idx, 'up')} />
+                                                                <SortButton direction="down" disabled={idx === getGroups(modal.dataType).length - 1} onClick={() => handleSortGroup(modal.dataType, idx, 'down')} />
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <BlurInput className="input-compact font-bold" value={g.name} onSave={(val) => handleRenameGroup(modal.dataType, g.name, val)} />
+                                                            </div>
+                                                            <button onClick={() => handleCloneGroup(modal.dataType, g.name)} className="p-2 text-blue-400 hover:text-blue-600" title="複製組別"><Icon name="Copy" size={16}/></button>
+                                                            <button onClick={() => handleDeleteGroup(modal.dataType, g.name)} className="p-2 text-red-400 hover:text-red-600" title="刪除組別"><Icon name="Trash2" size={16}/></button>
+                                                        </div>
+                                                    ))}
+                                                    {getGroups(modal.dataType).length === 0 && <div className="text-center text-slate-400 py-4">無自訂組別</div>}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {modal.type === 'item_editor' && (
+                                        <div className="space-y-4 bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
+                                            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">名稱</label><input className="w-full input-compact rounded-lg font-bold" value={modal.data.name} onChange={e => setModal({...modal, data: {...modal.data, name: e.target.value}})} /></div>
+                                            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">組別</label><CustomSelect value={modal.data.category} options={getGroups(modal.dataType).map(g => ({ value: g.name, label: g.name }))} onChange={val => setModal({...modal, data: {...modal.data, category: val}})} allowCustom={true} placeholder="選擇或輸入新組別..." /></div>
+                                            {modal.dataType === 'addons' && (
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">價格</label><input type="number" className="w-full input-compact rounded-lg font-bold" value={modal.data.price} onChange={e => setModal({...modal, data: {...modal.data, price: parseInt(e.target.value)||0}})} /></div>
+                                            )}
+                                            {modal.dataType === 'materials' && (
+                                                <div className="flex items-center gap-2 pt-2"><ToggleSwitch checked={!modal.data.isOut} variant="danger" onChange={c => setModal({...modal, data: {...modal.data, isOut: !c.target.checked}})} /><span className={`font-bold ${modal.data.isOut ? 'text-red-500' : 'text-slate-500'}`}>{modal.data.isOut ? '目前缺貨' : '供應中'}</span></div>
+                                            )}
+                                        </div>
+                                    )}
+                                    {modal.type === 'tags' && (
+                                        <div className="space-y-6">
+                                            <div className="p-4 bg-blue-50 text-blue-800 rounded-xl text-xs lg:text-sm font-medium flex items-start gap-2 border border-blue-100">
+                                                <Icon name="Info" size={18} className="mt-0.5 shrink-0"/>
+                                                <p>在此設定商品標籤（如：人氣、新品、辣味等）。設定後可於「餐點詳情」中勾選使用。</p>
+                                            </div>
+                                            <div className="glass-panel p-6 rounded-2xl space-y-4 bg-white">
+                                                <div className="flex flex-wrap gap-2 mb-2">
+                                                    {(settings.productTags || []).map((tag, idx) => (
+                                                        <div key={idx} className={`px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm font-bold shadow-sm ${TAG_COLORS[tag.color]}`}>
+                                                            <span>{tag.label}</span>
+                                                            <button onClick={()=>{ const n = [...settings.productTags]; n.splice(idx, 1); setSettings({...settings, productTags: n}); }} className="hover:text-black/50"><Icon name="X" size={14}/></button>
+                                                        </div>
+                                                    ))}
+                                                    {(settings.productTags || []).length === 0 && <span className="text-slate-400 text-sm">暫無標籤</span>}
+                                                </div>
+                                                <div className="flex gap-2 items-center pt-4 border-t border-slate-100">
+                                                    <input id="newTagNameModal" className="input-compact flex-1" placeholder="新標籤名稱" />
+                                                    <select id="newTagColorModal" className="input-compact w-24">
+                                                        <option value="red">紅</option><option value="orange">橘</option><option value="green">綠</option><option value="blue">藍</option><option value="purple">紫</option><option value="black">黑</option>
+                                                    </select>
+                                                    <Button size="small" variant="secondary" className="h-full" onClick={()=>{ 
+                                                        const name = document.getElementById('newTagNameModal').value; 
+                                                        const color = document.getElementById('newTagColorModal').value;
+                                                        if(name) { 
+                                                            setSettings({...settings, productTags: [...(settings.productTags||[]), {id: Date.now(), label: name, color}]}); 
+                                                            document.getElementById('newTagNameModal').value = '';
+                                                        }
+                                                    }}>新增</Button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {modal.type === 'coupon' && (
+                                        <div className="space-y-4 bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">優惠代碼 (必填)</label><input className="w-full input-compact rounded-lg font-bold" value={modal.data.code} onChange={e => setModal({...modal, data: {...modal.data, code: e.target.value.toUpperCase()}})} placeholder="例如: SAVE50" /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">到期日</label><input type="date" className="w-full input-compact rounded-lg font-bold" value={modal.data.expiry} onChange={e => setModal({...modal, data: {...modal.data, expiry: e.target.value}})} /></div>
+                                            </div>
+                                            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">標題 (顯示給客人)</label><input className="w-full input-compact rounded-lg font-bold" value={modal.data.title} onChange={e => setModal({...modal, data: {...modal.data, title: e.target.value}})} placeholder="例如: 新客見面禮" /></div>
+                                            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">描述</label><textarea className="w-full input-compact rounded-lg font-bold h-20 resize-none" value={modal.data.desc} onChange={e => setModal({...modal, data: {...modal.data, desc: e.target.value}})} placeholder="例如: 首次下單現折 $50"></textarea></div>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">折扣金額 ($)</label><input type="number" className="w-full input-compact rounded-lg font-bold text-red-500" value={modal.data.discount} onChange={e => setModal({...modal, data: {...modal.data, discount: parseInt(e.target.value)||0}})} /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">最低消費 ($)</label><input type="number" className="w-full input-compact rounded-lg font-bold" value={modal.data.minSpend} onChange={e => setModal({...modal, data: {...modal.data, minSpend: parseInt(e.target.value)||0}})} /></div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {modal.type === 'prod' && (
+                                        <>
+                                            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 space-y-4">
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">名稱</label><input className="w-full input-compact rounded-lg font-bold" value={modal.data.name} onChange={e => setModal({...modal, data: {...modal.data, name: e.target.value}})} /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">分類</label><CustomSelect value={modal.data.categoryId} options={categories.map(c => ({ value: c.id, label: c.name }))} onChange={val => setModal({...modal, data: {...modal.data, categoryId: val}})} /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">標籤</label><MultiSelect value={modal.data.tags || []} options={(settings.productTags || []).map(t => ({value: t.id, label: t.label}))} onChange={val => setModal({...modal, data: {...modal.data, tags: val}})} placeholder="選擇標籤..." /></div>
+                                                <div className="space-y-2 pt-2">
+                                                    <label className="text-[10px] font-bold text-slate-500 uppercase flex justify-between"><span>規格與價格</span><button onClick={()=>{ let n = [...(modal.data.variants||[])]; if(n.length === 0) { n = [{name: '原味/單一', price: modal.data.price, materials: []}, {name: '新規格', price: modal.data.price, materials: []}]; } else { n.push({name: '新規格', price: 0, materials: []}); } setModal({...modal, data: {...modal.data, variants: n}}); }} className="text-[#5B2274] hover:underline">+ 新增規格</button></label>
+                                                    
+                                                    {(!modal.data.variants || modal.data.variants.length === 0) && (
+                                                        <div className="space-y-2">
+                                                            <div className="flex gap-2"><div className="bg-slate-100 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-500 flex items-center justify-center w-24">單一規格</div><input type="number" className="flex-1 input-compact rounded-lg font-bold" value={modal.data.price} onChange={e => setModal({...modal, data: {...modal.data, price: parseInt(e.target.value)||0}})} placeholder="價格" /></div>
+                                                            <div className="flex gap-2 items-center"><span className="text-xs font-bold text-slate-400 w-24 text-center">綁定原物料</span><div className="flex-1"><MultiSelect value={modal.data.materials || []} options={materials.map(m => ({value: m.id, label: m.name}))} onChange={val => setModal({...modal, data: {...modal.data, materials: val}})} placeholder="選擇原物料 (影響庫存)..." /></div></div>
+                                                        </div>
+                                                    )}
+                                                    
+                                                    {modal.data.variants?.map((v, idx) => (
+                                                        <div key={idx} className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2">
+                                                            <div className="flex gap-2">
+                                                                <input className="flex-1 input-compact rounded-lg font-bold" value={v.name} onChange={e=>{const n=[...modal.data.variants]; n[idx].name=e.target.value; setModal({...modal, data: {...modal.data, variants: n}})}} placeholder="如: 大杯" />
+                                                                <input type="number" className="w-24 input-compact rounded-lg font-bold" value={v.price} onChange={e=>{const n=[...modal.data.variants]; n[idx].price=parseInt(e.target.value)||0; setModal({...modal, data: {...modal.data, variants: n}})}} placeholder="$" />
+                                                                <button onClick={()=>{ let n=modal.data.variants.filter((_,i)=>i!==idx); if (n.length === 1) { setModal({...modal, data: {...modal.data, price: n[0].price, variants: [], materials: []}}); } else { setModal({...modal, data: {...modal.data, variants: n}}); } }} className="p-1.5 text-slate-400 hover:text-red-500"><Icon name="Trash2" size={16}/></button>
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                <Icon name="Link" size={14} className="text-slate-400" />
+                                                                <div className="flex-1"><MultiSelect value={v.materials || []} options={materials.map(m => ({value: m.id, label: m.name}))} onChange={val => { const n = [...modal.data.variants]; n[idx].materials = val; setModal({...modal, data: {...modal.data, variants: n}}); }} placeholder="此規格綁定原物料..." /></div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">圖片 URL</label><div className="flex gap-2"><input className="w-full input-compact rounded-lg font-bold" value={modal.data.image} onChange={e => setModal({...modal, data: {...modal.data, image: e.target.value}})} /><button onClick={() => openCloudinaryWidget((url) => setModal({...modal, data: {...modal.data, image: url}}))} className="bg-slate-100 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-200 transition-colors font-bold flex items-center gap-1 whitespace-nowrap"><Icon name="UploadCloud" size={16} /> 上傳</button></div></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">描述</label><textarea className="w-full input-compact rounded-lg font-bold h-16 resize-none" value={modal.data.desc} onChange={e => setModal({...modal, data: {...modal.data, desc: e.target.value}})}></textarea></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-amber-600 uppercase">廚房備註</label><input className="w-full input-compact rounded-lg bg-amber-50 border border-amber-100 font-bold" value={modal.data.note} onChange={e => setModal({...modal, data: {...modal.data, note: e.target.value}})} /></div>
+                                            </div>
+                                            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 space-y-3">
+                                                <label className="text-[10px] font-bold text-slate-500 uppercase">適用客製化選項 (勾選開放)</label>
+                                                {processGroups('customization').map((group, gIdx) => (
+                                                    <div key={gIdx} className="space-y-1">
+                                                        <p className="text-xs font-black text-slate-400">{group.name}</p>
+                                                        <div className="flex flex-wrap gap-2">{group.items.map(ad => { const isSelected = modal.data.allowAddons?.includes(ad.id); return ( <button key={ad.id} onClick={()=>{ const current = modal.data.allowAddons || []; const next = isSelected ? current.filter(id => id !== ad.id) : [...current, ad.id]; setModal({...modal, data: {...modal.data, allowAddons: next}}); }} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${isSelected ? 'bg-[#5B2274] text-white border-[#5B2274]' : 'bg-white text-slate-500 border-slate-200'}`}> {ad.name} <span className="opacity-75">+${ad.price}</span> </button> ) })}</div>
+                                                    </div>
+                                                ))}
+                                                {addons.length === 0 && <span className="text-xs text-slate-400">請先在客製化頁面建立選項</span>}
+                                            </div>
+                                            <div className="bg-purple-50 p-5 rounded-xl border border-purple-100 space-y-4">
+                                                <div className="flex justify-between items-center"><div className="flex items-center gap-2 text-[#5B2274]"><Icon name="Sparkles" size={16}/><span className="font-bold text-sm">附餐群組 (多選)</span></div><Button variant="secondary" size="small" icon="Plus" onClick={()=>{ const n = [...(modal.data.sideGroups||[])]; n.push({id: Date.now(), title: '選擇附餐', categoryId: '', required: true, allowChange: true, defaultProductId: '', defaultVariantName: ''}); setModal({...modal, data: {...modal.data, sideGroups: n}}); }}>新增群組</Button></div>
+                                                {(modal.data.sideGroups||[]).map((group, idx) => {
+                                                    const groupProducts = products.filter(p => p.categoryId === group.categoryId);
+                                                    const defaultProduct = products.find(p => p.id === group.defaultProductId);
+                                                    return (
+                                                        <div key={idx} className="bg-white p-4 rounded-xl border border-purple-100 shadow-sm space-y-3 relative group" style={{zIndex: 50 - idx}}>
+                                                            <button onClick={()=>{const n=modal.data.sideGroups.filter((_,i)=>i!==idx); setModal({...modal, data: {...modal.data, sideGroups: n}})}} className="absolute top-2 right-2 text-slate-300 hover:text-red-500"><Icon name="X" size={14}/></button>
+                                                            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">群組標題</label><input className="w-full input-compact rounded-lg font-bold" value={group.title} onChange={e=>{const n=[...modal.data.sideGroups]; n[idx].title=e.target.value; setModal({...modal, data: {...modal.data, sideGroups: n}})}} /></div>
+                                                            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">來源分類</label><CustomSelect value={group.categoryId} options={categories.map(c => ({ value: c.id, label: c.name }))} onChange={val=>{const n=[...modal.data.sideGroups]; n[idx].categoryId=val; n[idx].defaultProductId=''; n[idx].defaultVariantName=''; setModal({...modal, data: {...modal.data, sideGroups: n}})}} /></div>
+                                                            <div className="flex items-center gap-2 pt-2"><ToggleSwitch checked={group.allowChange} onChange={c=>{const n=[...modal.data.sideGroups]; n[idx].allowChange=c; setModal({...modal, data: {...modal.data, sideGroups: n}})}} /><span className="text-[10px] font-bold text-slate-500">允許更換 (開啟即自動補差價)</span></div>
+                                                            {group.allowChange && group.categoryId && (
+                                                                <div className="p-2 bg-slate-50 rounded-lg space-y-2 border border-slate-100 mt-2">
+                                                                    <div className="space-y-1"><label className="text-[9px] font-bold text-slate-400">基準品項 (差價=0)</label><CustomSelect value={group.defaultProductId} options={groupProducts.map(p => ({ value: p.id, label: p.name + ` ($${p.price})` }))} onChange={val=>{const n=[...modal.data.sideGroups]; n[idx].defaultProductId=val; n[idx].defaultVariantName=''; setModal({...modal, data: {...modal.data, sideGroups: n}})}} searchable={true} /></div>
+                                                                    {defaultProduct?.variants?.length > 0 && (<div className="space-y-1"><label className="text-[9px] font-bold text-slate-400">基準規格</label><CustomSelect value={group.defaultVariantName} options={defaultProduct.variants.map(v => ({ value: v.name, label: v.name + ` ($${v.price})` }))} onChange={val=>{const n=[...modal.data.sideGroups]; n[idx].defaultVariantName=val; setModal({...modal, data: {...modal.data, sideGroups: n}})}} /></div>)}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                                {(modal.data.sideGroups||[]).length === 0 && <div className="text-center text-xs text-purple-300 py-2">無附餐設定</div>}
+                                            </div>
+                                            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 space-y-3"><label className="text-[10px] font-bold text-slate-500 uppercase">可搭配套餐</label><div className="grid grid-cols-2 gap-2">{sets.map(s => (<button key={s.id} onClick={() => { const current = modal.data.allowSets || []; const next = current.includes(s.id) ? current.filter(id => id !== s.id) : [...current, s.id]; setModal({...modal, data: {...modal.data, allowSets: next}}); }} className={`p-2 rounded-lg border text-xs font-bold flex justify-between transition-all ${modal.data.allowSets?.includes(s.id) ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200'}`}><span>{s.name}</span><span className="opacity-70">+${s.price}</span></button>))}</div></div>
+                                        </>
+                                    )}
+                                    {modal.type === 'cat' && <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100"><label className="text-[10px] font-bold text-slate-500 uppercase">分類名稱</label><input className="w-full input-compact rounded-lg font-bold mt-1" value={modal.data.name} onChange={e => setModal({...modal, data: {...modal.data, name: e.target.value}})} /></div>}
+                                    {modal.type === 'set' && (
+                                        <div className="space-y-6">
+                                            {/* ... Set Modal Content ... */}
+                                            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 grid grid-cols-3 gap-3">
+                                                <div className="col-span-2 space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">名稱</label><input className="w-full input-compact rounded-lg font-bold" value={modal.data.name} onChange={e => setModal({...modal, data: {...modal.data, name: e.target.value}})} /></div>
+                                                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">加價</label><input type="number" className="w-full input-compact rounded-lg font-bold" value={modal.data.price} onChange={e => setModal({...modal, data: {...modal.data, price: parseInt(e.target.value)||0}})} /></div>
+                                                <div className="col-span-3 space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">圖片 URL</label><div className="flex gap-2"><input className="w-full input-compact rounded-lg font-bold" value={modal.data.image} onChange={e => setModal({...modal, data: {...modal.data, image: e.target.value}})} placeholder="https://..." /><button onClick={() => openCloudinaryWidget((url) => setModal({...modal, data: {...modal.data, image: url}}))} className="bg-slate-100 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-200 transition-colors font-bold flex items-center gap-1 whitespace-nowrap"><Icon name="UploadCloud" size={16} /> 上傳</button></div></div>
+                                            </div>
+                                            <div className="space-y-3">
+                                                <div className="flex justify-between items-center"><label className="text-[10px] font-black text-[#5B2274] uppercase">套餐結構</label><Button variant="secondary" size="small" icon="Plus" onClick={() => { const newItem = { label: '新項目', type: 'category', defaultProductId: '', allowChange: true }; setModal({...modal, data: {...modal.data, contents: [...(modal.data.contents || []), newItem]}}); }}>新增欄位</Button></div>
+                                                <div className="space-y-2">{(modal.data.contents || []).map((item, idx) => {
+                                                    const slotProducts = products.filter(p=>p.categoryId===item.categoryId);
+                                                    const defaultProduct = products.find(p=>p.id===item.defaultProductId);
+                                                    const fixedProduct = products.find(p=>p.id===item.productId);
+                                                    const filterCategoryId = item.tempFilterCategoryId || fixedProduct?.categoryId || '';
+                                                    const filteredFixedProducts = products.filter(p => p.categoryId === filterCategoryId);
+
+                                                    return (
+                                                        <div key={idx} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 relative group animate-fade-in" style={{zIndex: 50 - idx}}>
+                                                            <button onClick={() => { const next = modal.data.contents.filter((_, i) => i !== idx); setModal({...modal, data: {...modal.data, contents: next}}); }} className="absolute top-2 right-2 text-slate-300 hover:text-red-500"><Icon name="X" size={14}/></button>
+                                                            <div className="grid grid-cols-2 gap-3 mb-3"><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">標籤</label><input className="w-full input-compact rounded-lg font-bold" value={item.label} onChange={e => { const next = [...modal.data.contents]; next[idx].label = e.target.value; setModal({...modal, data: {...modal.data, contents: next}}); }} /></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">類型</label><CustomSelect value={item.type} options={[{value: 'fixed', label: '指定固定品項'}, {value: 'category', label: '開放分類選品'}]} onChange={val => { const next = [...modal.data.contents]; next[idx].type = val; setModal({...modal, data: {...modal.data, contents: next}}); }} /></div></div>
+                                                            {item.type === 'category' && (
+                                                                <div className="space-y-3">
+                                                                    <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">來源分類</label><CustomSelect value={item.categoryId} options={categories.map(c => ({value: c.id, label: c.name}))} onChange={val => { const next = [...modal.data.contents]; next[idx].categoryId = val; next[idx].defaultProductId=''; next[idx].defaultVariantName=''; setModal({...modal, data: {...modal.data, contents: next}}); }} /></div>
+                                                                    <div className="flex items-center gap-2 pt-1"><ToggleSwitch checked={item.allowChange} onChange={c => { const next = [...modal.data.contents]; next[idx].allowChange = c; setModal({...modal, data: {...modal.data, contents: next}}); }} /><span className="text-xs font-bold text-slate-500">允許更換 (開啟即自動補差價)</span></div>
+                                                                    {item.allowChange && (
+                                                                        <>
+                                                                            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">預設品項</label><CustomSelect value={item.defaultProductId} options={slotProducts.map(p => ({value: p.id, label: p.name}))} onChange={val => { const next = [...modal.data.contents]; next[idx].defaultProductId = val; next[idx].defaultVariantName=''; setModal({...modal, data: {...modal.data, contents: next}}); }} searchable={true} /></div>
+                                                                            {defaultProduct?.variants?.length > 0 && (<div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">預設規格</label><CustomSelect value={item.defaultVariantName} options={defaultProduct.variants.map(v => ({value: v.name, label: v.name}))} onChange={val => { const next = [...modal.data.contents]; next[idx].defaultVariantName = val; setModal({...modal, data: {...modal.data, contents: next}}); }} /></div>)}
+                                                                        </>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                            {item.type === 'fixed' && (
+                                                                <div className="space-y-3 bg-slate-50 p-3 rounded-lg border border-slate-100">
+                                                                    <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">篩選分類</label><CustomSelect value={filterCategoryId} options={categories.map(c => ({value: c.id, label: c.name}))} onChange={val => { const next = [...modal.data.contents]; next[idx].tempFilterCategoryId = val; setModal({...modal, data: {...modal.data, contents: next}}); }} /></div>
+                                                                    <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">指定品項</label><CustomSelect value={item.productId} options={filteredFixedProducts.map(p => ({value: p.id, label: p.name}))} onChange={val => { const next = [...modal.data.contents]; next[idx].productId = val; next[idx].variantName=''; setModal({...modal, data: {...modal.data, contents: next}}); }} searchable={true} /></div>
+                                                                    {fixedProduct?.variants?.length > 0 && (<div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">指定規格</label><CustomSelect value={item.variantName} options={fixedProduct.variants.map(v => ({value: v.name, label: v.name}))} onChange={val => { const next = [...modal.data.contents]; next[idx].variantName = val; setModal({...modal, data: {...modal.data, contents: next}}); }} /></div>)}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}</div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="p-5 bg-white border-t border-slate-100 flex gap-3"><Button variant="secondary" className="flex-1" onClick={() => setModal(null)}>取消</Button><Button className="flex-[2]" icon="Save" onClick={() => { 
+                                    if (modal.type === 'tags') {
+                                        dbOp('set', 'settings', 'config', settings);
+                                        setModal(null);
+                                        return;
+                                    }
+
+                                    if (modal.type === 'group_mgmt') {
+                                        // Groups are saved individually in handlers
+                                        setModal(null);
+                                        return;
+                                    }
+
+                                    const coll = (modal.type === 'prod' ? 'products' : (modal.type === 'cat' ? 'categories' : (modal.type === 'set' ? 'sets' : (modal.type === 'coupon' ? 'coupons' : (modal.dataType === 'materials' ? 'materials' : 'addons')))));
+                                    
+                                    // Handle item editor sorting
+                                    let nextSortOrder = 99;
+                                    if (!modal.data.id) {
+                                        // ... existing sort order logic ...
+                                        if (coll === 'products') {
+                                            const currentList = products.filter(i => i.categoryId === modal.data.categoryId);
+                                            nextSortOrder = currentList.length > 0 ? Math.max(...currentList.map(i => i.sortOrder || 0)) + 1 : 0;
+                                        } else if (coll === 'categories') {
+                                            nextSortOrder = categories.length > 0 ? Math.max(...categories.map(i => i.sortOrder || 0)) + 1 : 0;
+                                        } else if (coll === 'sets') {
+                                            nextSortOrder = sets.length > 0 ? Math.max(...sets.map(i => i.sortOrder || 0)) + 1 : 0;
+                                        } else if (coll === 'materials' || coll === 'addons') {
+                                            // New Item in group
+                                            const items = coll === 'materials' ? materials : addons;
+                                            const currentList = items.filter(i => i.category === modal.data.category);
+                                            nextSortOrder = currentList.length > 0 ? Math.max(...currentList.map(i => i.sortOrder || 0)) + 1 : 0;
+                                        }
+                                    }
+                                    
+                                    const dataToSave = {...modal.data};
+                                    // ... existing save logic ...
+                                    if(coll === 'sets' && dataToSave.contents) {
+                                        dataToSave.contents = dataToSave.contents.map(c => {
+                                            const { tempFilterCategoryId, ...rest } = c;
+                                            return rest;
+                                        });
+                                    }
+
+                                    if(modal.data.id) dbOp('update', coll, modal.data.id, dataToSave);
+                                    else dbOp('add', coll, null, {...dataToSave, sortOrder: nextSortOrder});
+                                    setModal(null); 
+                                }}>儲存</Button></div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

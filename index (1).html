@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>城市漢堡 虎尾光復店 | 數位菜單</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+        
+        body { 
+            font-family: 'Plus Jakarta Sans', 'Noto Sans TC', sans-serif; 
+            background-color: #F8F9FA; 
+            color: #1E293B; 
+            letter-spacing: 0px !important; 
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slideInUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        /* Marquee Animation */
+        @keyframes marquee-scroll-wait { 
+            0% { transform: translateX(0); } 
+            15% { transform: translateX(0); } /* Wait 15% of duration at start */
+            100% { transform: translateX(-100%); } /* Scroll completely off screen */
+        }
+        
+        .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+        .animate-slide-up { animation: slideInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        .animate-marquee { display: inline-block; white-space: nowrap; animation: marquee 30s linear infinite; padding-left: 100%; }
+        
+        .header-curve {
+            border-bottom-left-radius: 2.5rem;
+            border-bottom-right-radius: 2.5rem;
+        }
+    </style>
+</head>
+<body class="select-none">
+    <div id="root"></div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
+        import { getFirestore, doc, onSnapshot, collection, enableIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyA9x0gk2zQBJr1vkNLAoBodbBQ3_D2aXag",
+            authDomain: "cityburger-huwei.firebaseapp.com",
+            projectId: "cityburger-huwei",
+            storageBucket: "cityburger-huwei.firebasestorage.app",
+            messagingSenderId: "546465207310",
+            appId: "1:546465207310:web:4b742f2a3b883dee58585f"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // 啟用離線快取 Persistence
+        enableIndexedDbPersistence(db).catch((err) => {
+            if (err.code == 'failed-precondition') {
+                console.warn('多個分頁開啟中，快取僅在第一個分頁有效');
+            } else if (err.code == 'unimplemented') {
+                console.warn('瀏覽器不支援快取功能');
+            }
+        });
+        
+        window.db = db;
+        window.appId = "cityburger-huwei-v1";
+        window.onSnapshot = onSnapshot;
+        window.doc = doc;
+        window.collection = collection;
+    </script>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef, useLayoutEffect } = React;
+        const BRAND_COLOR = "#5B2274";
+
+        // --- Shared Components ---
+        // --- Helper: Cloudinary Image Optimizer ---
+        const getOptimizedImage = (url, width = 600) => {
+            if (!url) return 'https://placehold.co/400x300?text=No+Image';
+            if (url.includes('cloudinary.com')) {
+                const parts = url.split('/upload/');
+                if (parts.length === 2) {
+                    return `${parts[0]}/upload/w_${width},q_auto,f_auto/${parts[1]}`;
+                }
+            }
+            return url;
+        };
+
+        const Icon = ({ name, size = 18, className = "" }) => {
+            const [iconData, setIconData] = useState(null);
+            useEffect(() => {
+                if (window.lucide && window.lucide.icons) {
+                    const pascalName = name.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');
+                    const icon = window.lucide.icons[name] || window.lucide.icons[pascalName] || window.lucide.icons[name.charAt(0).toUpperCase() + name.slice(1)];
+                    setIconData(icon || null);
+                }
+            }, [name]);
+
+            if (!iconData) return <span style={{ width: size, height: size }} className={`inline-block ${className}`}></span>;
+            
+            return (
+                <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                    {iconData.map(([tag, attrs], i) => React.createElement(tag, { ...attrs, key: i }))}
+                </svg>
+            );
+        };
+
+        const SearchIcon = ({ active }) => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={active ? BRAND_COLOR : "#94A3B8"} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="transition-colors duration-300">
+                <circle cx="11" cy="11" r="8"></circle>
+                <path d="m21 21-4.3-4.3"></path>
+            </svg>
+        );
+
+        const TAG_COLORS = {
+            red: 'bg-red-500 text-white',
+            orange: 'bg-orange-400 text-white',
+            green: 'bg-emerald-500 text-white',
+            blue: 'bg-blue-500 text-white',
+            purple: 'bg-purple-500 text-white',
+            black: 'bg-slate-800 text-white'
+        };
+
+        // --- Smart Marquee Component (Optimized) ---
+        const SmartMarquee = ({ announcements }) => {
+            const [index, setIndex] = useState(0);
+            const [shouldScroll, setShouldScroll] = useState(false);
+            const containerRef = useRef(null);
+            const textRef = useRef(null);
+
+            const items = useMemo(() => announcements.filter(a => a && a.trim() !== ''), [announcements]);
+            
+            const currentText = items[index];
+
+            useEffect(() => {
+                setIndex(0);
+            }, [items.length]);
+
+            const handleNext = () => {
+                setIndex((prev) => (prev + 1) % items.length);
+                setShouldScroll(false);
+            };
+
+            // Measure width logic
+            useLayoutEffect(() => {
+                if (containerRef.current && textRef.current && currentText) {
+                    const containerWidth = containerRef.current.offsetWidth;
+                    const textWidth = textRef.current.offsetWidth;
+                    
+                    if (textWidth > containerWidth) {
+                        setShouldScroll(true);
+                    } else {
+                        // Short text logic
+                        setShouldScroll(false);
+                        const timer = setTimeout(handleNext, 4000);
+                        return () => clearTimeout(timer);
+                    }
+                }
+            }, [index, currentText]);
+
+            useEffect(() => {
+                if (items.length === 0 || !shouldScroll) return;
+                
+                const container = containerRef.current;
+                const text = textRef.current;
+                if (!container || !text) return;
+
+                // 1. Initialize State
+                text.style.transform = 'translateX(0)';
+                text.style.opacity = '0';
+                
+                // 2. Fade In
+                const fadeIn = text.animate([
+                    { opacity: 0 },
+                    { opacity: 1 }
+                ], { duration: 500, fill: 'forwards' });
+
+                fadeIn.onfinish = () => {
+                    const containerWidth = container.offsetWidth;
+                    const textWidth = text.offsetWidth;
+                    const distance = textWidth - containerWidth;
+
+                    if (distance > 0) {
+                        const speed = 40; // px per second
+                        const scrollDuration = (distance / speed) * 1000;
+                        const waitStart = 2000;
+                        const waitEnd = 2000;
+                        const totalDuration = waitStart + scrollDuration + waitEnd;
+
+                        const scrollAnim = text.animate([
+                            { transform: 'translateX(0)', offset: 0 },
+                            { transform: 'translateX(0)', offset: waitStart / totalDuration }, 
+                            { transform: `translateX(-${distance}px)`, offset: (waitStart + scrollDuration) / totalDuration },
+                            { transform: `translateX(-${distance}px)`, offset: 1 }
+                        ], {
+                            duration: totalDuration,
+                            fill: 'forwards'
+                        });
+
+                        scrollAnim.onfinish = () => {
+                            const fadeOut = text.animate([
+                                { opacity: 1 },
+                                { opacity: 0 }
+                            ], { duration: 500, fill: 'forwards' });
+                            
+                            fadeOut.onfinish = () => {
+                                handleNext();
+                            };
+                        };
+                    }
+                };
+
+                return () => {
+                    text.getAnimations().forEach(anim => anim.cancel());
+                };
+            }, [index, items, shouldScroll]);
+
+            if (items.length === 0) return null;
+
+            return (
+                <div className="bg-white rounded-xl shadow-lg p-3 flex items-center gap-3 border border-slate-100 mx-6 -mt-5 mb-2 relative z-40 overflow-hidden">
+                    <div className="bg-amber-100 p-1.5 rounded-lg text-amber-600 shrink-0 relative z-10"><Icon name="megaphone" size={14} /></div>
+                    <div className="flex-1 h-6 relative overflow-hidden flex items-center" ref={containerRef}>
+                        <div 
+                            ref={textRef}
+                            className={`whitespace-nowrap text-[15px] font-bold text-slate-700 ${!shouldScroll ? 'animate-fade-in' : ''}`}
+                            style={{ willChange: 'transform, opacity' }}
+                        >
+                            {currentText}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        function App() {
+            // Data States
+            const [settings, setSettings] = useState({ phone: '', address: '', mapsUrl: '', openTime: '06:00', closeTime: '13:30', closedDays: [], statusMode: 'auto', announcements: [], specialDates: [], productTags: [], addonGroups: [] });
+            const [categories, setCategories] = useState([]);
+            const [products, setProducts] = useState([]);
+            const [sets, setSets] = useState([]);
+            const [addons, setAddons] = useState([]);
+            const [materials, setMaterials] = useState([]);
+
+            // UI States
+            const [activeCategory, setActiveCategory] = useState('');
+            const [searchTerm, setSearchTerm] = useState('');
+            const [isSearchActive, setIsSearchActive] = useState(false);
+            const [selectedItem, setSelectedItem] = useState(null);
+            const [showInfoModal, setShowInfoModal] = useState(false);
+            const [expandedSetId, setExpandedSetId] = useState(null); 
+            
+            const categoryRefs = useRef({});
+            const menuRef = useRef(null);
+            const isClickScroll = useRef(false);
+
+            // 1. Data Fetching
+            useEffect(() => {
+                const { db, appId, onSnapshot, doc, collection } = window;
+                if (!db) return;
+
+                onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'config'), d => { 
+                    if (d.exists()) setSettings(d.data()); 
+                    else onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'global'), gd => { if(gd.exists()) setSettings(gd.data()); });
+                });
+
+                onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'categories'), snap => {
+                    const list = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => a.sortOrder - b.sortOrder);
+                    setCategories(list);
+                    if (list.length > 0 && !activeCategory) setActiveCategory(list[0].id);
+                });
+
+                onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'products'), snap => { 
+                    setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => a.sortOrder - b.sortOrder)); 
+                });
+
+                onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'sets'), snap => { 
+                    setSets(snap.docs.map(d => ({ id: d.id, ...d.data() }))); 
+                });
+
+                onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'addons'), snap => {
+                    setAddons(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                });
+
+                onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'materials'), snap => {
+                    setMaterials(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                });
+
+            }, []);
+
+            // 2. Scroll Spy (Optimized)
+            useEffect(() => {
+                const observer = new IntersectionObserver((entries) => {
+                    if (isClickScroll.current) return;
+                    const visibleSection = entries.find(entry => entry.isIntersecting);
+                    if (visibleSection) {
+                        setActiveCategory(visibleSection.target.id);
+                    }
+                }, { 
+                    root: menuRef.current, 
+                    rootMargin: '-10% 0px -80% 0px', 
+                    threshold: 0 
+                });
+
+                categories.forEach(cat => {
+                    if (categoryRefs.current[cat.id]) observer.observe(categoryRefs.current[cat.id]);
+                });
+
+                return () => observer.disconnect();
+            }, [categories]);
+
+            // 3. Logic Helpers
+            const getDisplayPrice = (p) => {
+                if (p.variants && p.variants.length > 0) { 
+                    const prices = p.variants.map(v => v.price);
+                    const min = Math.min(...prices); 
+                    const max = Math.max(...prices);
+                    if (min === max) return `$${min}`;
+                    return `$${min} 起`; 
+                }
+                return `$${p.price}`;
+            };
+
+            const checkAvailability = (product) => {
+                const outMaterialIds = materials.filter(m => m.isOut).map(m => m.id);
+                if (product.materials && product.materials.some(id => outMaterialIds.includes(id))) {
+                    return 'all_out'; 
+                }
+                if (product.variants && product.variants.length > 0) {
+                    const availableVariants = product.variants.filter(v => {
+                        const vMats = v.materials || [];
+                        return !vMats.some(id => outMaterialIds.includes(id));
+                    });
+                    if (availableVariants.length === 0) return 'all_out'; 
+                    if (availableVariants.length < product.variants.length) return 'partial'; 
+                }
+                return 'ok';
+            };
+
+            // Taiwan Time (UTC+8) Status Check
+            const isOpenStatus = useMemo(() => {
+                if (settings.statusMode === 'open') return true;
+                if (settings.statusMode === 'closed') return false;
+                
+                const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
+                const todayStr = now.toISOString().split('T')[0];
+                const year = now.getFullYear();
+                const month =String(now.getMonth() + 1).padStart(2, '0');
+                const day = String(now.getDate()).padStart(2, '0');
+                const twDateStr = `${year}-${month}-${day}`;
+
+                const currentTime = now.getHours() * 60 + now.getMinutes();
+                const currentDay = now.getDay(); 
+
+                const special = settings.specialDates?.find(sd => sd.date === twDateStr);
+                if (special) {
+                    if (special.type === 'closed') return false;
+                    const [sh, sm] = (settings.openTime || "06:00").split(':').map(Number);
+                    const [eh, em] = (settings.closeTime || "13:30").split(':').map(Number);
+                    return currentTime >= (sh*60+sm) && currentTime <= (eh*60+em);
+                }
+                
+                if (settings.closedDays?.includes(currentDay)) return false;
+                
+                const [sh, sm] = (settings.openTime || "06:00").split(':').map(Number);
+                const [eh, em] = (settings.closeTime || "13:30").split(':').map(Number);
+                return currentTime >= (sh*60+sm) && currentTime <= (eh*60+em);
+            }, [settings]);
+
+            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [categories, products, selectedItem, searchTerm, showInfoModal, expandedSetId]);
+
+            const filteredMenu = useMemo(() => {
+                const term = searchTerm.trim().toLowerCase();
+                return categories.map(cat => ({
+                    ...cat,
+                    items: products.filter(p => {
+                        const matchSearch = !term || p.name.toLowerCase().includes(term);
+                        return p.categoryId === cat.id && !p.isHidden && matchSearch;
+                    }).sort((a,b) => a.sortOrder - b.sortOrder)
+                })).filter(cat => cat.items.length > 0);
+            }, [categories, products, searchTerm]);
+
+            // Group Addons Logic for Modal
+            const groupedItemAddons = useMemo(() => {
+                if (!selectedItem || !selectedItem.allowAddons) return [];
+                
+                const validAddons = addons.filter(a => selectedItem.allowAddons.includes(a.id));
+                const groups = {};
+                validAddons.forEach(a => {
+                    const cat = a.category || '其他';
+                    if (!groups[cat]) groups[cat] = [];
+                    groups[cat].push(a);
+                });
+
+                const definedGroups = settings.addonGroups || [];
+                const result = definedGroups.map(dg => ({
+                    name: dg.name,
+                    items: (groups[dg.name] || []).sort((a,b) => (a.sortOrder||0) - (b.sortOrder||0))
+                })).filter(g => g.items.length > 0);
+
+                const definedNames = definedGroups.map(dg => dg.name);
+                Object.keys(groups).forEach(catName => {
+                    if (!definedNames.includes(catName)) {
+                        result.push({
+                            name: catName,
+                            items: groups[catName].sort((a,b) => (a.sortOrder||0) - (b.sortOrder||0))
+                        });
+                    }
+                });
+
+                return result;
+            }, [selectedItem, addons, settings.addonGroups]);
+
+            const dayNames = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+
+            return (
+                <div className="h-screen flex flex-col overflow-hidden bg-[#F8F9FA]">
+                    {/* Header */}
+                    <header className="shrink-0 relative z-30 header-curve shadow-xl" style={{ backgroundColor: BRAND_COLOR }}>
+                        <div className="px-6 pt-8 pb-10 space-y-5">
+                            <div className="flex justify-between items-center">
+                                <h1 className="text-2xl font-[900] text-white tracking-tight leading-none drop-shadow-md whitespace-nowrap">城市漢堡 虎尾光復店</h1>
+                                <div className="flex items-center gap-2">
+                                    <div className={`px-3 py-1.5 rounded-full shadow-lg transition-all flex items-center gap-1.5 ${isOpenStatus ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
+                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-white animate-pulse"></span>
+                                        <span className="text-[11px] font-black tracking-wide leading-none pt-0.5">{isOpenStatus ? '營業中' : '休息中'}</span>
+                                    </div>
+                                    <button onClick={() => setShowInfoModal(true)} className="w-8 h-8 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-white active:scale-95 transition-all border border-white/10 hover:bg-white/30">
+                                        <Icon name="info" size={18} />
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="flex justify-between items-center text-white/90 text-[13px] font-bold px-1">
+                                <a href={settings.mapsUrl || "#"} target="_blank" className="flex items-center gap-1.5 active:opacity-70 hover:text-white transition-opacity max-w-[60%]">
+                                    <Icon name="map-pin" size={16} className="opacity-80" />
+                                    <span className="truncate">{settings.address || '載入中...'}</span>
+                                </a>
+                                <a href={`tel:${settings.phone}`} className="flex items-center gap-1.5 active:opacity-70 hover:text-white transition-opacity">
+                                    <Icon name="phone" size={16} className="opacity-80" />
+                                    {settings.phone}
+                                </a>
+                            </div>
+                            <div className="relative group pt-1">
+                                <div className="absolute left-4 top-1/2 -translate-y-1/2 transition-colors z-10 pt-1">
+                                    <SearchIcon active={isSearchActive} />
+                                </div>
+                                <input 
+                                    type="text" 
+                                    placeholder="想吃點什麼？" 
+                                    className="w-full bg-white rounded-2xl py-3.5 pl-12 pr-4 text-slate-700 placeholder:text-slate-400 font-bold shadow-lg outline-none focus:ring-4 focus:ring-purple-400/30 transition-all transform focus:-translate-y-0.5"
+                                    value={searchTerm} 
+                                    onChange={e => setSearchTerm(e.target.value)} 
+                                    onFocus={() => setIsSearchActive(true)} 
+                                    onBlur={() => setIsSearchActive(false)} 
+                                />
+                            </div>
+                        </div>
+                    </header>
+
+                    {/* Sequential Smart Marquee */}
+                    <SmartMarquee announcements={settings.announcements} />
+
+                    {/* Menu Content */}
+                    <div className="flex flex-1 overflow-hidden bg-white mt-1">
+                        <nav className="w-24 bg-slate-50 border-r border-slate-100 overflow-y-auto no-scrollbar shrink-0 pt-2 pb-24">
+                            {filteredMenu.map(cat => (
+                                <button 
+                                    key={cat.id} 
+                                    onClick={() => { 
+                                        isClickScroll.current = true;
+                                        setActiveCategory(cat.id); 
+                                        categoryRefs.current[cat.id]?.scrollIntoView({ behavior: 'smooth', block: 'start' }); 
+                                        setTimeout(() => isClickScroll.current = false, 800);
+                                    }} 
+                                    className={`w-full py-5 px-1 text-[13px] font-black text-center relative transition-all duration-300 flex flex-col items-center gap-1.5 ${activeCategory === cat.id ? 'text-[#5B2274] bg-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                                >
+                                    {activeCategory === cat.id && <div className="absolute left-0 top-1/2 -translate-y-1/2 h-8 w-1.5 rounded-r-full" style={{ backgroundColor: BRAND_COLOR }}></div>}
+                                    <span className="z-10 leading-tight px-1">{cat.name}</span>
+                                </button>
+                            ))}
+                        </nav>
+                        <main ref={menuRef} className="flex-1 overflow-y-auto p-5 no-scrollbar scroll-smooth bg-white">
+                            {filteredMenu.map(cat => (
+                                <section key={cat.id} id={cat.id} ref={el => categoryRefs.current[cat.id] = el} className="mb-10">
+                                    <div className="flex items-center gap-3 mb-6">
+                                        <span className="text-lg font-[900] tracking-tight text-slate-800">{cat.name}</span>
+                                        <div className="h-1 w-1 bg-slate-200 rounded-full"></div>
+                                        <div className="h-[1px] bg-slate-100 flex-1"></div>
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-6">
+                                        {cat.items.map(item => {
+                                            const availability = checkAvailability(item);
+                                            const isSoldOut = availability === 'all_out';
+
+                                            return (
+                                                <article key={item.id} onClick={() => setSelectedItem(item)} className={`flex items-start gap-4 transition-transform group cursor-pointer ${isSoldOut ? 'opacity-60 grayscale' : 'active:scale-[0.98]'}`}>
+                                                    <div className="w-24 h-24 rounded-2xl bg-slate-50 overflow-hidden shrink-0 shadow-sm relative aspect-square group-hover:shadow-md transition-all border border-slate-100">
+                                                        {/* 使用優化後的圖片網址 (列表用小圖 w=300) */}
+                                                        <img src={getOptimizedImage(item.image, 300)} className="w-full h-full object-cover transition-transform duration-500" loading="lazy" />
+                                                        {isSoldOut && <div className="absolute inset-0 bg-black/40 flex items-center justify-center"><span className="text-white font-black text-xs border-2 border-white px-1.5 py-0.5 rounded -rotate-12">已售完</span></div>}
+                                                        
+                                                        {/* Tags Overlay */}
+                                                        {!isSoldOut && (
+                                                            <div className="absolute top-1 left-1 flex flex-col gap-0.5">
+                                                                {item.tags?.map(tId => {
+                                                                    const tag = settings.productTags?.find(t => t.id === tId);
+                                                                    return tag ? <span key={tId} className={`text-[8px] px-1.5 py-0.5 rounded-md font-bold shadow-sm ${TAG_COLORS[tag.color]}`}>{tag.label}</span> : null;
+                                                                })}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex-1 min-w-0 py-1 flex flex-col h-24 justify-between">
+                                                        <div>
+                                                            <h3 className="text-[16px] font-bold text-slate-900 truncate pr-2 leading-tight">{item.name}</h3>
+                                                            <p className="text-[12px] text-slate-400 truncate mt-1 font-medium">{item.desc}</p>
+                                                        </div>
+                                                        <div className="flex justify-between items-end">
+                                                            <div className="flex flex-col">
+                                                                <span className="font-black text-[17px] text-[#5B2274]">{getDisplayPrice(item)}</span>
+                                                            </div>
+                                                            {!isSoldOut && (
+                                                                <button className="w-7 h-7 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center group-hover:bg-[#5B2274] group-hover:text-white transition-colors">
+                                                                    <Icon name="plus" size={16} />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </article>
+                                            );
+                                        })}
+                                    </div>
+                                </section>
+                            ))}
+                            <div className="h-40"></div>
+                        </main>
+                    </div>
+
+                    {/* Product Detail Modal */}
+                    {selectedItem && (
+                        <div className="fixed inset-0 bg-black/80 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in backdrop-blur-sm" onClick={() => setSelectedItem(null)}>
+                            <div className="bg-white w-full max-w-md rounded-t-[40px] sm:rounded-[40px] overflow-hidden shadow-2xl flex flex-col animate-slide-up max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                                {/* 強制 16:9 比例大圖 */}
+                                <div className="relative aspect-[16/9] w-full shrink-0 overflow-hidden bg-slate-100">
+                                    {/* 使用優化後的圖片網址 (大圖 w=800) */}
+                                    <img src={getOptimizedImage(selectedItem.image, 800)} className={`w-full h-full object-cover ${checkAvailability(selectedItem) === 'all_out' ? 'grayscale opacity-50' : ''}`} />
+                                    <button onClick={() => setSelectedItem(null)} className="absolute top-4 right-4 bg-black/40 text-white p-2.5 rounded-full backdrop-blur-md active:scale-90 transition-transform z-10"><Icon name="x" size={24} /></button>
+                                    
+                                    {checkAvailability(selectedItem) === 'all_out' && (
+                                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                            <div className="bg-black/60 text-white text-3xl font-black px-6 py-2 border-4 border-white transform -rotate-6 tracking-widest uppercase">
+                                                已售完
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Modal Tags */}
+                                    {checkAvailability(selectedItem) !== 'all_out' && (
+                                        <div className="absolute top-4 left-4 flex gap-1.5 flex-wrap">
+                                            {selectedItem.tags?.map(tId => {
+                                                const tag = settings.productTags?.find(t => t.id === tId);
+                                                return tag ? <span key={tId} className={`text-xs px-2 py-1 rounded-lg font-bold shadow-sm backdrop-blur-sm ${TAG_COLORS[tag.color]}`}>{tag.label}</span> : null;
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                                
+                                <div className="p-8 space-y-8 overflow-y-auto no-scrollbar bg-white">
+                                    {/* Header Info */}
+                                    <div className="space-y-4">
+                                        <div className="flex justify-between items-start">
+                                            <h2 className="text-2xl font-black text-slate-900 leading-tight pr-4">{selectedItem.name}</h2>
+                                            <span className="text-2xl font-black text-[#5B2274]">{getDisplayPrice(selectedItem)}</span>
+                                        </div>
+                                        
+                                        {/* 餐點介紹 */}
+                                        {selectedItem.desc && (
+                                            <div className="space-y-1">
+                                                <p className="text-[11px] font-[900] text-slate-400 uppercase tracking-widest">餐點介紹</p>
+                                                <p className="text-[14px] font-bold leading-relaxed text-slate-600">{selectedItem.desc}</p>
+                                            </div>
+                                        )}
+
+                                        {/* 圖片免責聲明 */}
+                                        <p className="text-[10px] font-bold text-red-500 bg-red-50 px-2 py-1 rounded inline-block">※ 圖片僅供參考，餐點以實物為主</p>
+
+                                        {selectedItem.note && (
+                                            <div className="p-3 bg-orange-50 border border-orange-200 rounded-xl flex gap-2 shadow-sm">
+                                                <Icon name="info" size={20} className="text-orange-500 shrink-0 mt-0.5" />
+                                                <p className="text-xs font-bold text-orange-800 leading-tight flex items-center">{selectedItem.note}</p>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Variants Section */}
+                                    {selectedItem.variants?.length > 0 && (
+                                        <div className="space-y-3">
+                                            <p className="text-[11px] font-[900] text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-1">規格選擇</p>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                {selectedItem.variants.map((v, i) => {
+                                                    // 檢查單一規格是否缺貨
+                                                    const outMaterialIds = materials.filter(m => m.isOut).map(m => m.id);
+                                                    const isVariantOut = (v.materials || []).some(id => outMaterialIds.includes(id));
+                                                    
+                                                    return (
+                                                        <div key={i} className={`flex justify-between items-center p-3 rounded-xl border ${isVariantOut ? 'bg-slate-100 border-slate-200 text-slate-400' : 'bg-slate-50 border-slate-100'}`}>
+                                                            <span className={`text-sm font-bold ${isVariantOut ? 'text-slate-500' : 'text-slate-700'}`}>{v.name}</span>
+                                                            <div className="flex items-center gap-1">
+                                                                <span className={`text-sm font-black ${isVariantOut ? 'text-slate-400' : 'text-[#5B2274]'}`}>${v.price}</span>
+                                                                {isVariantOut && <span className="text-xs font-bold text-red-400">(售完)</span>}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Side Groups Section */}
+                                    {selectedItem.sideGroups?.length > 0 && (
+                                        <div className="space-y-3">
+                                            <p className="text-[11px] font-[900] text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-1">附餐內容</p>
+                                            <div className="space-y-3">
+                                                {selectedItem.sideGroups.map((group, i) => {
+                                                    const targetCat = categories.find(c => c.id === group.categoryId);
+                                                    const defProd = products.find(p => p.id === group.defaultProductId);
+                                                    // 優化附餐圖片
+                                                    let img = getOptimizedImage(defProd?.image, 200) || 'https://placehold.co/100x100?text=Side';
+                                                    let name = defProd?.name || group.title;
+                                                    let variant = group.defaultVariantName ? `(${group.defaultVariantName})` : '';
+                                                    if (defProd && defProd.image) img = getOptimizedImage(defProd.image, 200);
+                                                    
+                                                    return (
+                                                        <div key={i} className="flex gap-3 p-3 bg-white rounded-2xl border border-slate-100 shadow-sm items-center">
+                                                            <div className="w-14 h-14 rounded-xl bg-slate-50 border border-slate-100 overflow-hidden shrink-0 aspect-square">
+                                                                <img src={img} className="w-full h-full object-cover" />
+                                                            </div>
+                                                            <div className="flex-1 min-w-0 space-y-1">
+                                                                <p className="text-sm font-black text-slate-800 truncate">{name} <span className="text-xs text-slate-500 font-bold">{variant}</span></p>
+                                                                {group.allowChange ? (<div className="flex items-center gap-1.5 text-[#5B2274]"><Icon name="check-circle-2" size={14} className="fill-[#5B2274] text-white" /><span className="text-[11px] font-bold">可補差價更換 {targetCat?.name} 系列商品</span></div>) : (<div className="flex items-center gap-1.5 text-slate-400"><Icon name="lock" size={14} /><span className="text-[11px] font-bold">固定附餐，不可更換</span></div>)}
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Addons (Grouped) */}
+                                    {groupedItemAddons.length > 0 && (
+                                        <div className="space-y-4">
+                                            <p className="text-[11px] font-[900] text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-1">客製化選項</p>
+                                            {groupedItemAddons.map(group => (
+                                                <div key={group.name} className="space-y-2">
+                                                    <p className="text-xs font-black text-slate-500">{group.name}</p>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {group.items.map(ad => (
+                                                            <div key={ad.id} className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 shadow-sm flex items-center gap-1">
+                                                                {ad.name} {ad.price > 0 && <span className="text-[#5B2274] font-black">+${ad.price}</span>}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {/* Sets Section (Accordion Style) */}
+                                    {selectedItem.allowSets?.length > 0 && (
+                                        <div className="space-y-3">
+                                            <p className="text-[11px] font-[900] text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-1">升級套餐</p>
+                                            <div className="space-y-3">
+                                                {selectedItem.allowSets.map(setId => {
+                                                    const s = sets.find(set => set.id === setId);
+                                                    if (!s) return null;
+                                                    const isExpanded = expandedSetId === setId;
+                                                    // 優化套餐圖片
+                                                    let setImg = getOptimizedImage(s.image, 200) || 'https://placehold.co/100x100?text=Set';
+                                                    if (!s.image) {
+                                                        const fixedItem = s.contents?.find(c => c.type === 'fixed');
+                                                        if (fixedItem) { const p = products.find(prod => prod.id === fixedItem.productId); if (p && p.image) setImg = getOptimizedImage(p.image, 200); }
+                                                    }
+                                                    return (
+                                                        <div key={setId} className="rounded-2xl border border-slate-100 shadow-sm overflow-hidden bg-white transition-all">
+                                                            <div className={`flex gap-3 p-3 items-center cursor-pointer ${isExpanded ? 'bg-slate-50' : 'bg-white'}`} onClick={() => setExpandedSetId(isExpanded ? null : setId)}>
+                                                                <div className="w-16 h-16 rounded-xl bg-slate-100 border border-slate-100 overflow-hidden shrink-0 aspect-square"><img src={setImg} className="w-full h-full object-cover" /></div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex justify-between items-center"><p className="text-sm font-black text-slate-800 truncate">{s.name}</p><span className="text-sm font-black text-[#5B2274] bg-purple-50 px-2 py-0.5 rounded-lg border border-purple-100">+${s.price}</span></div>
+                                                                    <div className="flex justify-between items-center mt-1"><span className="text-[10px] text-slate-400 font-bold">{isExpanded ? '收起詳情' : '查看內容'}</span><Icon name="chevron-down" size={14} className={`text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} /></div>
+                                                                </div>
+                                                            </div>
+                                                            {isExpanded && (
+                                                                <div className="p-3 pt-0 bg-slate-50 border-t border-slate-100 animate-fade-in">
+                                                                    <div className="space-y-2 mt-2">
+                                                                        {s.contents?.map((content, idx) => {
+                                                                            let contentImg = 'https://placehold.co/100x100?text=Item';
+                                                                            let contentName = content.label;
+                                                                            let contentSub = "";
+                                                                            let isChangeable = content.allowChange !== false;
+                                                                            let targetCatName = '';
+                                                                            if (content.type === 'fixed') {
+                                                                                const p = products.find(prod => prod.id === content.productId);
+                                                                                if (p) {
+                                                                                    // 優化套餐內圖片
+                                                                                    contentImg = getOptimizedImage(p.image, 200);
+                                                                                    contentName = p.name;
+                                                                                    if (content.variantName) contentSub = content.variantName;
+                                                                                }
+                                                                                isChangeable = false;
+                                                                            } else if (content.type === 'category') {
+                                                                                const cat = categories.find(c => c.id === content.categoryId);
+                                                                                const defP = products.find(p => p.id === content.defaultProductId);
+                                                                                if (defP) {
+                                                                                    // 優化套餐內預設品項圖片
+                                                                                    contentImg = getOptimizedImage(defP.image, 200);
+                                                                                    contentName = `${content.label}`;
+                                                                                    contentSub = defP.name;
+                                                                                    if (content.defaultVariantName) contentSub += ` (${content.defaultVariantName})`;
+                                                                                }
+                                                                                if (cat) targetCatName = cat.name;
+                                                                            }
+                                                                            return (
+                                                                                <div key={idx} className="flex gap-3 p-2 bg-white rounded-xl border border-slate-200 items-center">
+                                                                                    <div className="w-16 h-16 rounded-lg bg-slate-100 overflow-hidden shrink-0 aspect-square"><img src={contentImg} className="w-full h-full object-cover" /></div>
+                                                                                    <div className="flex-1 min-w-0">
+                                                                                        <div className="flex justify-between items-start">
+                                                                                            <span className="text-sm font-black text-slate-800 truncate">{contentName}</span>
+                                                                                        </div>
+                                                                                        {contentSub && <p className="text-xs text-slate-500 font-bold truncate mt-0.5">{contentSub}</p>}
+                                                                                        {content.type === 'category' && isChangeable ? (
+                                                                                            <div className="flex items-center gap-1 text-[#5B2274] mt-1.5"><Icon name="check-circle-2" size={12} className="fill-[#5B2274] text-white" /><span className="text-[10px] font-bold">可補差價更換 {targetCatName} 系列商品</span></div>
+                                                                                        ) : !isChangeable && (
+                                                                                            <div className="flex items-center gap-1 text-slate-400 mt-1.5"><Icon name="lock" size={12} /><span className="text-[10px] font-bold">固定品項，不可更換</span></div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div className="h-4"></div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Operating Hours Modal */}
+                    {showInfoModal && (
+                        <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-6 backdrop-blur-sm animate-fade-in" onClick={() => setShowInfoModal(false)}>
+                            <div className="bg-white w-full max-w-xs rounded-3xl p-6 shadow-2xl animate-slide-up relative" onClick={e => e.stopPropagation()}>
+                                <button onClick={() => setShowInfoModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><Icon name="x" size={24} /></button>
+                                <div className="text-center mb-6">
+                                    <div className="w-12 h-12 bg-purple-100 text-[#5B2274] rounded-full flex items-center justify-center mx-auto mb-3"><Icon name="clock" size={24} /></div>
+                                    <h3 className="text-xl font-[900] text-slate-800">營業時間資訊</h3>
+                                </div>
+                                <div className="space-y-4">
+                                    <div className="bg-slate-50 p-4 rounded-2xl flex justify-between items-center"><span className="text-sm font-bold text-slate-500">平日營業</span><span className="text-lg font-black text-slate-800">{settings.openTime} - {settings.closeTime}</span></div>
+                                    <div className="bg-slate-50 p-4 rounded-2xl flex justify-between items-center">
+                                        <span className="text-sm font-bold text-slate-500">每週公休</span>
+                                        <span className="text-lg font-black text-slate-800">
+                                            {settings.closedDays.length > 0 
+                                                ? `每週${settings.closedDays.sort().map(d => dayNames[d].replace('週','')).join('、')}公休` 
+                                                : '無'}
+                                        </span>
+                                    </div>
+                                    {settings.specialDates?.length > 0 && (
+                                        <div className="space-y-2 pt-2 border-t border-slate-100">
+                                            <p className="text-xs font-black text-slate-400 uppercase tracking-wider text-center">特殊排休/營業</p>
+                                            <div className="max-h-32 overflow-y-auto no-scrollbar space-y-1.5">
+                                                {settings.specialDates.map((sd, i) => (
+                                                    <div key={i} className="flex flex-col border-b border-slate-100 last:border-0 pb-1">
+                                                        <div className="flex justify-between text-xs font-bold px-2">
+                                                            <span className="text-slate-600">{sd.date}</span>
+                                                            <span className={sd.type === 'open' ? 'text-emerald-500' : 'text-red-500'}>{sd.type === 'open' ? '加開營業' : '特殊店休'}</span>
+                                                        </div>
+                                                        {sd.note && <span className="text-[10px] text-slate-400 px-2">{sd.note}</span>}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

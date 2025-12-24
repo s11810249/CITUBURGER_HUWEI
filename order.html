@@ -1,0 +1,1717 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>線上點餐 | 城市漢堡 虎尾光復店</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- LINE LIFF SDK -->
+    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+        
+        body { 
+            font-family: 'Plus Jakarta Sans', 'Noto Sans TC', sans-serif; 
+            background-color: #F8F9FA; 
+            color: #1E293B; 
+            letter-spacing: 0px !important; 
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slideInUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        /* Marquee Animation */
+        @keyframes marquee-scroll-wait { 
+            0% { transform: translateX(0); } 
+            15% { transform: translateX(0); } 
+            100% { transform: translateX(-100%); }
+        }
+        
+        .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+        .animate-slide-up { animation: slideInUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        .animate-bounce-subtle { animation: bounce-subtle 0.2s ease-in-out; }
+        @keyframes bounce-subtle {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        
+        .header-curve {
+            border-bottom-left-radius: 2.5rem;
+            border-bottom-right-radius: 2.5rem;
+        }
+
+        /* Checkbox custom style */
+        .custom-checkbox:checked {
+            background-color: #5B2274;
+            border-color: #5B2274;
+        }
+        
+        /* Ticket style for coupons */
+        .coupon-ticket {
+            background-image: radial-gradient(circle at 0 50%, transparent 10px, white 11px), radial-gradient(circle at 100% 50%, transparent 10px, white 11px);
+            background-position: 0 0, 0 0;
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+        }
+
+        /* Toggle Switch */
+        .switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .4s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+        input:checked + .slider { background-color: #5B2274; }
+        input:checked + .slider:before { transform: translateX(20px); }
+    </style>
+</head>
+<body class="select-none">
+    <div id="root"></div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
+        import { getAuth, signInWithCredential, OAuthProvider, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, collection, addDoc, enableIndexedDbPersistence, query, where, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyA9x0gk2zQBJr1vkNLAoBodbBQ3_D2aXag",
+            authDomain: "cityburger-huwei.firebaseapp.com",
+            projectId: "cityburger-huwei",
+            storageBucket: "cityburger-huwei.firebasestorage.app",
+            messagingSenderId: "546465207310",
+            appId: "1:546465207310:web:4b742f2a3b883dee58585f"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        try {
+            enableIndexedDbPersistence(db).catch((err) => {});
+        } catch (e) { console.warn(e); }
+        
+        window.db = db;
+        window.auth = auth;
+        window.signInWithCredential = signInWithCredential;
+        window.OAuthProvider = OAuthProvider;
+        window.appId = "cityburger-huwei-v1";
+        window.onSnapshot = onSnapshot;
+        window.doc = doc;
+        window.collection = collection;
+        window.addDoc = addDoc;
+        window.query = query;
+        window.where = where;
+        window.orderBy = orderBy;
+        window.getDocs = getDocs;
+    </script>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef, useLayoutEffect } = React;
+        const BRAND_COLOR = "#5B2274";
+        
+        // ==========================================
+        //  請填入您的 LIFF IDs
+        // ==========================================
+        // 點餐用 LIFF ID (主選單/訂單模式)
+        const LIFF_ID_ORDER = "YOUR_ORDER_LIFF_ID"; 
+        // 瀏覽用 LIFF ID (單純瀏覽菜單/非點餐模式)
+        const LIFF_ID_BROWSE = "YOUR_BROWSE_LIFF_ID";
+
+        const getOptimizedImage = (url, width = 600) => {
+            if (!url) return 'https://placehold.co/400x300?text=No+Image';
+            if (url.includes('cloudinary.com')) {
+                const parts = url.split('/upload/');
+                if (parts.length === 2) {
+                    return `${parts[0]}/upload/w_${width},q_auto,f_auto/${parts[1]}`;
+                }
+            }
+            return url;
+        };
+
+        const Icon = ({ name, size = 18, className = "", fill = "none" }) => {
+            const [iconData, setIconData] = useState(null);
+            useEffect(() => {
+                if (window.lucide && window.lucide.icons) {
+                    const pascalName = name.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');
+                    const icon = window.lucide.icons[name] || window.lucide.icons[pascalName] || window.lucide.icons[name.charAt(0).toUpperCase() + name.slice(1)];
+                    setIconData(icon || null);
+                }
+            }, [name]);
+            if (!iconData) return <span style={{ width: size, height: size }} className={`inline-block ${className}`}></span>;
+            return React.createElement('svg', { 
+                xmlns: "http://www.w3.org/2000/svg", 
+                width: size, 
+                height: size, 
+                viewBox: "0 0 24 24", 
+                fill: fill, 
+                stroke: "currentColor", 
+                strokeWidth: "2", 
+                strokeLinecap: "round", 
+                strokeLinejoin: "round", 
+                className 
+            }, iconData.map(([tag, attrs], i) => React.createElement(tag, { ...attrs, key: i })));
+        };
+
+        const SearchIcon = ({ active }) => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={active ? BRAND_COLOR : "#94A3B8"} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="transition-colors duration-300">
+                <circle cx="11" cy="11" r="8"></circle>
+                <path d="m21 21-4.3-4.3"></path>
+            </svg>
+        );
+
+        const TAG_COLORS = {
+            red: 'bg-red-500 text-white',
+            orange: 'bg-orange-400 text-white',
+            green: 'bg-emerald-500 text-white',
+            blue: 'bg-blue-500 text-white',
+            purple: 'bg-purple-500 text-white',
+            black: 'bg-slate-800 text-white'
+        };
+
+        const SmartMarquee = ({ announcements }) => {
+            const [index, setIndex] = useState(0);
+            const [shouldScroll, setShouldScroll] = useState(false);
+            const containerRef = useRef(null);
+            const textRef = useRef(null);
+            const items = useMemo(() => announcements.filter(a => a && a.trim() !== ''), [announcements]);
+            const currentText = items[index];
+
+            useEffect(() => { setIndex(0); }, [items.length]);
+
+            const handleNext = () => {
+                setIndex((prev) => (prev + 1) % items.length);
+                setShouldScroll(false);
+            };
+
+            useLayoutEffect(() => {
+                if (containerRef.current && textRef.current && currentText) {
+                    const containerWidth = containerRef.current.offsetWidth;
+                    const textWidth = textRef.current.offsetWidth;
+                    if (textWidth > containerWidth) {
+                        setShouldScroll(true);
+                    } else {
+                        setShouldScroll(false);
+                        const timer = setTimeout(handleNext, 4000);
+                        return () => clearTimeout(timer);
+                    }
+                }
+            }, [index, currentText]);
+
+            useEffect(() => {
+                if (items.length === 0 || !shouldScroll) return;
+                const container = containerRef.current;
+                const text = textRef.current;
+                if (!container || !text) return;
+
+                text.style.transform = 'translateX(0)';
+                text.style.opacity = '0';
+                const fadeIn = text.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 500, fill: 'forwards' });
+
+                fadeIn.onfinish = () => {
+                    const containerWidth = container.offsetWidth;
+                    const textWidth = text.offsetWidth;
+                    const distance = textWidth - containerWidth;
+                    if (distance > 0) {
+                        const speed = 40;
+                        const scrollDuration = (distance / speed) * 1000;
+                        const waitStart = 2000;
+                        const waitEnd = 2000;
+                        const totalDuration = waitStart + scrollDuration + waitEnd;
+                        const scrollAnim = text.animate([
+                            { transform: 'translateX(0)', offset: 0 },
+                            { transform: 'translateX(0)', offset: waitStart / totalDuration }, 
+                            { transform: `translateX(-${distance}px)`, offset: (waitStart + scrollDuration) / totalDuration },
+                            { transform: `translateX(-${distance}px)`, offset: 1 }
+                        ], { duration: totalDuration, fill: 'forwards' });
+                        scrollAnim.onfinish = () => {
+                            const fadeOut = text.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 500, fill: 'forwards' });
+                            fadeOut.onfinish = () => { handleNext(); };
+                        };
+                    }
+                };
+                return () => { text.getAnimations().forEach(anim => anim.cancel()); };
+            }, [index, items, shouldScroll]);
+
+            if (items.length === 0) return null;
+
+            return (
+                <div className="bg-white rounded-xl shadow-lg p-3 flex items-center gap-3 border border-slate-100 mx-6 -mt-5 mb-2 relative z-40 overflow-hidden">
+                    <div className="bg-amber-100 p-1.5 rounded-lg text-amber-600 shrink-0 relative z-10"><Icon name="megaphone" size={14} /></div>
+                    <div className="flex-1 h-6 relative overflow-hidden flex items-center" ref={containerRef}>
+                        <div ref={textRef} className={`whitespace-nowrap text-[15px] font-bold text-slate-700 ${!shouldScroll ? 'animate-fade-in' : ''}`} style={{ willChange: 'transform, opacity' }}>
+                            {currentText}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const OrderHistoryItem = ({ order, onReorder, onCancel }) => {
+            const [expanded, setExpanded] = useState(false);
+            const todayStr = new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei", year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
+            const isFutureOrder = order.userInfo.pickupDate > todayStr;
+            const isPending = order.status === 'pending';
+
+            return (
+                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                    <div onClick={() => setExpanded(!expanded)} className="flex justify-between items-center cursor-pointer">
+                        <div className="flex flex-col">
+                            <span className="text-xs font-bold text-slate-400">{new Date(order.createdAt).toLocaleDateString()} {new Date(order.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                            <span className="text-sm font-black text-slate-800 mt-1">${order.totalPrice}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <span className={`text-xs font-bold px-2 py-1 rounded ${order.status === 'pending' ? 'bg-slate-100 text-slate-500' : order.status === 'cancelled' ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-500'}`}>
+                                {order.status === 'pending' ? '等待接單' : (order.status === 'cancelled' ? '已取消' : (order.status === 'confirmed' ? '製作中' : '已完成'))}
+                            </span>
+                            <Icon name={expanded ? "chevron-up" : "chevron-down"} size={16} className="text-slate-300" />
+                        </div>
+                    </div>
+                    {expanded && (
+                        <div className="mt-4 pt-4 border-t border-slate-50 animate-fade-in">
+                            <div className="space-y-4 mb-4">
+                                {order.items.map((item, i) => (
+                                    <div key={i} className="flex flex-col gap-1 text-sm border-b border-dashed border-slate-100 pb-3 last:border-0">
+                                        <div className="flex justify-between font-bold text-slate-700">
+                                            <span className="truncate flex-1 pr-2">{item.qty}x {item.name}</span>
+                                            <span>${item.totalPrice}</span>
+                                        </div>
+                                        <div className="pl-4 space-y-0.5 text-xs">
+                                            {item.variantName && <p className="text-slate-500">規格: {item.variantName}</p>}
+                                            {item.addons && item.addons.length > 0 && <p className="text-slate-500">加選: {item.addons.map(a => a.name).join(' / ')}</p>}
+                                            {item.sideGroups && Object.values(item.sideGroups).map((side, idx) => (<p key={`side-${idx}`} className="text-slate-500">附餐: {side.name} {side.variantName ? `(${side.variantName})` : ''}</p>))}
+                                            {item.set && (<div className="text-slate-500"><p>套餐: {item.set.name}</p>{item.set.contents?.map((c, cIdx) => { const choice = item.setChoices?.[cIdx]; if (choice) { return <p key={`set-${cIdx}`} className="pl-2">- {choice.name} {choice.variantName ? `(${choice.variantName})` : ''}</p>; } return null; })}</div>)}
+                                            {item.note && <p className="text-orange-500">備註: {item.note}</p>}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                            {(order.discountAmount > 0) && (<div className="flex justify-between items-center text-xs font-bold text-slate-500 bg-slate-50 p-2 rounded-lg mb-4"><span>{order.discountApplied === 'loyalty' ? '集點卡折抵' : `優惠券 (${order.discountApplied})`}</span><span className="text-red-500">-${order.discountAmount}</span></div>)}
+                            <div className="flex justify-between items-center gap-3">
+                                {isFutureOrder && isPending && (<button onClick={(e) => { e.stopPropagation(); onCancel(order); }} className="flex-1 px-4 py-2 bg-red-50 text-red-500 text-xs font-bold rounded-xl active:scale-95 transition-transform border border-red-100 hover:bg-red-100">取消訂單</button>)}
+                                <button onClick={(e) => { e.stopPropagation(); onReorder(order); }} className="flex-1 px-4 py-2 bg-[#5B2274] text-white text-xs font-bold rounded-xl active:scale-95 transition-transform hover:bg-[#4a1b5e]">再點一次</button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        function App() {
+            const [settings, setSettings] = useState({ phone: '', address: '', mapsUrl: '', openTime: '06:00', closeTime: '13:30', closedDays: [], statusMode: 'auto', announcements: [], specialDates: [], productTags: [], addonGroups: [] });
+            const [categories, setCategories] = useState([]);
+            const [products, setProducts] = useState([]);
+            const [sets, setSets] = useState([]);
+            const [addons, setAddons] = useState([]);
+            const [materials, setMaterials] = useState([]);
+            const [coupons, setCoupons] = useState([]); 
+            const [currentView, setCurrentView] = useState('menu'); 
+            const [activeCategory, setActiveCategory] = useState('');
+            const [searchTerm, setSearchTerm] = useState('');
+            const [isSearchActive, setIsSearchActive] = useState(false);
+            const [selectedItem, setSelectedItem] = useState(null); 
+            const [showInfoModal, setShowInfoModal] = useState(false);
+            const [showCartModal, setShowCartModal] = useState(false);
+            const [showSubmitConfirm, setShowSubmitConfirm] = useState(false); 
+            const [selectionModal, setSelectionModal] = useState(null); 
+            const [configuringProduct, setConfiguringProduct] = useState(null); 
+            const [messageModal, setMessageModal] = useState({ show: false, content: '' });
+            const [cancelConfirmModal, setCancelConfirmModal] = useState({ show: false, order: null });
+            const [favorites, setFavorites] = useState([]);
+            const [orderHistory, setOrderHistory] = useState([]);
+            const [userInfo, setUserInfo] = useState({ name: '', phone: '', remember: false, contactMethod: 'line' });
+            const [pickupDate, setPickupDate] = useState('');
+            const [isASAP, setIsASAP] = useState(false);
+            const [pickupHour, setPickupHour] = useState('');
+            const [pickupMinute, setPickupMinute] = useState('');
+            const [myCoupons, setMyCoupons] = useState([]); 
+            const [cart, setCart] = useState([]);
+            const [selectedCoupon, setSelectedCoupon] = useState(null);
+            const [couponInput, setCouponInput] = useState('');
+            const [useLoyaltyCard, setUseLoyaltyCard] = useState(false);
+            const [editingCartItem, setEditingCartItem] = useState(null); 
+            const [itemCount, setItemCount] = useState(1);
+            const [selectedVariant, setSelectedVariant] = useState(null);
+            const [selectedAddons, setSelectedAddons] = useState([]);
+            const [selectedSideGroups, setSelectedSideGroups] = useState({}); 
+            const [selectedSet, setSelectedSet] = useState(null);
+            const [selectedSetChoices, setSelectedSetChoices] = useState({}); 
+            const [itemNote, setItemNote] = useState('');
+            const [expandedSetId, setExpandedSetId] = useState(null);
+
+            const getTaiwanDate = () => {
+                const d = new Date();
+                return new Date(d.toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
+            };
+
+            // New States for Auth & Mode
+            const [currentUser, setCurrentUser] = useState(null);
+            const [appMode, setAppMode] = useState('order'); // 'order' or 'browse'
+
+            const categoryRefs = useRef({});
+            const menuRef = useRef(null);
+            const isClickScroll = useRef(false);
+
+            useEffect(() => {
+                const savedFavs = localStorage.getItem('cb_favorites');
+                if (savedFavs) setFavorites(JSON.parse(savedFavs));
+                const savedHistory = localStorage.getItem('cb_history');
+                if (savedHistory) setOrderHistory(JSON.parse(savedHistory));
+                const savedUser = localStorage.getItem('cb_user_info');
+                if (savedUser) setUserInfo(JSON.parse(savedUser));
+                const savedCoupons = localStorage.getItem('cb_my_coupons');
+                if (savedCoupons) setMyCoupons(JSON.parse(savedCoupons));
+            }, []);
+
+            useEffect(() => { localStorage.setItem('cb_favorites', JSON.stringify(favorites)); }, [favorites]);
+            useEffect(() => { localStorage.setItem('cb_my_coupons', JSON.stringify(myCoupons)); }, [myCoupons]);
+            
+            // ==========================================
+            //  LIFF Initialization & Firebase Auth Bridge (修正版)
+            // ==========================================
+            useEffect(() => {
+                // 1. 等待 settings 從 Firestore 載入完成 (必須要有 liffId)
+                if (!settings.liffId) return;
+
+                const initLiff = async () => {
+                    try {
+                        const params = new URLSearchParams(window.location.search);
+                        const mode = params.get('mode');
+                        setAppMode(mode || 'order');
+
+                        // 2. 從 settings 動態取得 LIFF ID，而非使用寫死的常數
+                        const currentLiffId = (mode === 'browse' && settings.liffIdBrowse) 
+                            ? settings.liffIdBrowse 
+                            : settings.liffId;
+
+                        // 避免重複初始化 (檢查 liff.id 是否已存在)
+                        if (window.liff && window.liff.id !== currentLiffId) {
+                            await window.liff.init({ liffId: currentLiffId });
+                            
+                            if (window.liff.isLoggedIn()) {
+                                // 取得 LINE 個人資料
+                                const profile = await window.liff.getProfile();
+                                setUserInfo(prev => ({
+                                    ...prev,
+                                    name: prev.name || profile.displayName
+                                }));
+
+                                // 3. Firebase Bridge: 使用 LINE ID Token 交換 Firebase 憑證
+                                const idToken = window.liff.getIDToken();
+                                const { auth, signInWithCredential, OAuthProvider } = window;
+                                
+                                const provider = new OAuthProvider('oidc.line');
+                                const credential = provider.credential({
+                                    idToken: idToken,
+                                });
+
+                                // 登入 Firebase
+                                try {
+                                    const result = await signInWithCredential(auth, credential);
+                                    setCurrentUser(result.user);
+                                    console.log("Firebase Auth Success:", result.user.uid);
+                                    // 這裡成功後，Firestore 的 request.auth.uid 就會等於這個 uid
+                                } catch (authError) {
+                                    console.error("Firebase Auth Error:", authError);
+                                    showAlert("登入驗證失敗，請重新開啟");
+                                }
+                            } else {
+                                // 如果未登入，且在點餐模式，強制登入
+                                if (mode !== 'browse') {
+                                    window.liff.login();
+                                }
+                            }
+                        }
+                    } catch (err) {
+                        console.error('LIFF Init Error:', err);
+                    }
+                };
+                
+                initLiff();
+            }, [settings.liffId, settings.liffIdBrowse]);
+
+            useEffect(() => {
+                const { db, appId, onSnapshot, doc, collection } = window;
+                if (!db) return;
+                const unsubs = [];
+                const sub = (coll, setter) => unsubs.push(onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', coll), snap => {
+                    const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    if(coll === 'categories') {
+                        list.sort((a,b) => a.sortOrder - b.sortOrder);
+                        if(!activeCategory && list.length > 0) setActiveCategory(list[0].id);
+                    }
+                    if(coll === 'products' || coll === 'sets') list.sort((a,b) => a.sortOrder - b.sortOrder);
+                    if(coll === 'materials' || coll === 'addons') list.sort((a,b) => (a.sortOrder||0) - (b.sortOrder||0));
+                    setter(list);
+                }));
+
+                onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'config'), d => { 
+                    if (d.exists()) setSettings(d.data()); 
+                    else onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'global'), gd => { if(gd.exists()) setSettings(gd.data()); });
+                });
+
+                sub('categories', setCategories);
+                sub('products', setProducts);
+                sub('sets', setSets);
+                sub('addons', setAddons);
+                sub('materials', setMaterials);
+                sub('coupons', setCoupons);
+
+                return () => unsubs.forEach(fn => fn());
+            }, []);
+            
+            // ==========================================
+            //  Order History Query (Security Rules Compliant)
+            // ==========================================
+            useEffect(() => {
+                const { db, appId, onSnapshot, collection, query, where } = window;
+                
+                // Only query if we have a valid authenticated Firebase user
+                if(!db || !currentUser) return;
+
+                // Query by customerUid instead of phone number
+                const q = query(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'orders'), 
+                    where('customerUid', '==', currentUser.uid)
+                );
+                
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    const liveOrders = snapshot.docs.map(d => ({...d.data(), id: d.id}));
+                    setOrderHistory(prev => {
+                        // Merge logic to keep local details but update status
+                        // Or simply replace if we trust the cloud query fully
+                        // Here we'll just use the live list for simplicity and correctness
+                        return liveOrders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                    });
+                });
+                return () => unsubscribe();
+            }, [currentUser]); // Dependency updated to currentUser
+
+            const showAlert = (msg) => { setMessageModal({ show: true, content: msg }); };
+            const dayNames = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+
+            const getAvailableDates = () => {
+                const dates = [];
+                const nowTw = getTaiwanDate(); // 使用剛剛新增的台灣時間工具
+                let dayOffset = 0;
+                let foundCount = 0;
+
+                // 使用 while 迴圈，直到找到 3 個有營業的日子為止
+                // 設定 dayOffset < 14 是為了避免設定錯誤導致無窮迴圈
+                while (foundCount < 3 && dayOffset < 14) {
+                    const d = new Date(nowTw);
+                    d.setDate(nowTw.getDate() + dayOffset);
+                    
+                    // 格式化成 YYYY-MM-DD
+                    const dateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+                    const dayOfWeek = d.getDay();
+                    
+                    let isAvailable = true;
+
+                    // 1. 檢查每週固定公休
+                    if (settings.closedDays?.includes(dayOfWeek)) isAvailable = false;
+                    
+                    // 2. 檢查特殊日期設定
+                    const special = settings.specialDates?.find(sd => sd.date === dateStr);
+                    if (special) {
+                        if (special.type === 'closed') isAvailable = false;
+                        else if (special.type === 'open') isAvailable = true;
+                    }
+
+                    // 3. 如果是「今天」，檢查是否已經超過最後點餐時間
+                    if (dayOffset === 0 && isAvailable) {
+                        const currentMinutes = nowTw.getHours() * 60 + nowTw.getMinutes();
+                        const [eh, em] = (settings.closeTime || "13:30").split(':').map(Number);
+                        // 最後點餐時間為打烊前 15 分鐘
+                        const lastOrderTime = (eh * 60 + em) - 15;
+                        if (currentMinutes > lastOrderTime) isAvailable = false; 
+                    }
+
+                    if (isAvailable) {
+                        // 產生顯示文字 (今天、明天、日期+星期)
+                        let label = "";
+                        if (dayOffset === 0) label = `今天 (${d.getMonth()+1}/${d.getDate()})`;
+                        else if (dayOffset === 1) label = `明天 (${d.getMonth()+1}/${d.getDate()})`;
+                        else label = `${d.getMonth()+1}/${d.getDate()} (${dayNames[dayOfWeek]})`;
+
+                        dates.push({ value: dateStr, label: label });
+                        foundCount++;
+                    }
+                    
+                    dayOffset++;
+                }
+                return dates;
+            };
+
+            const checkIsOpenNow = () => {
+                const now = new Date();
+                const [oh, om] = (settings.openTime || "06:00").split(':').map(Number);
+                const [eh, em] = (settings.closeTime || "13:30").split(':').map(Number);
+                const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
+                return currentTotalMinutes >= (oh * 60 + om) && currentTotalMinutes <= (eh * 60 + em);
+            };
+
+            const getAvailableHours = (dateStr) => {
+                if (!dateStr) return [];
+                const hours = [];
+                const [oh, om] = (settings.openTime || "06:00").split(':').map(Number);
+                const [eh, em] = (settings.closeTime || "13:30").split(':').map(Number);
+                let startH = oh;
+                const endH = eh;
+                
+                // ★ 改用台灣時間
+                const now = getTaiwanDate();
+                const todayStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+                
+                const isToday = dateStr === todayStr;
+                if (isToday) {
+                    const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
+                    let nextSlot = currentTotalMinutes + 15;
+                    nextSlot = Math.ceil(nextSlot / 5) * 5;
+                    startH = Math.floor(nextSlot / 60);
+                }
+                for (let h = startH; h <= endH; h++) { hours.push(h); }
+                return hours;
+            };
+
+            const getAvailableMinutes = (dateStr, hour) => {
+                if (!dateStr || hour === '') return [];
+                const minutes = [];
+                const h = parseInt(hour);
+                const [oh, om] = (settings.openTime || "06:00").split(':').map(Number);
+                const [eh, em] = (settings.closeTime || "13:30").split(':').map(Number);
+                
+                // ★ 改用台灣時間
+                const now = getTaiwanDate();
+                const todayStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+                
+                const isToday = dateStr === todayStr;
+                const minTotal = oh * 60 + om + 15;
+                const maxTotal = eh * 60 + em - 15;
+                for (let m = 0; m < 60; m += 5) {
+                    const currentSlotTotal = h * 60 + m;
+                    if (currentSlotTotal < minTotal || currentSlotTotal > maxTotal) continue;
+                    if (isToday) {
+                         const nowTotal = now.getHours() * 60 + now.getMinutes();
+                         if (currentSlotTotal < nowTotal + 15) continue;
+                    }
+                    minutes.push(m);
+                }
+                return minutes;
+            };
+
+            useEffect(() => { if (showCartModal) { const dates = getAvailableDates(); if (dates.length > 0 && !pickupDate) { setPickupDate(dates[0].value); } } }, [showCartModal, settings]);
+            useEffect(() => { if (pickupDate) { setPickupHour(''); setPickupMinute(''); } }, [pickupDate]);
+            useEffect(() => { if (pickupDate && !isASAP && pickupHour === '') { const hours = getAvailableHours(pickupDate); if (hours.length > 0) { for (let h of hours) { const mins = getAvailableMinutes(pickupDate, h); if (mins.length > 0) { setPickupHour(h); setPickupMinute(mins[0]); break; } } } } }, [pickupDate, isASAP]);
+
+            const getDisplayPrice = (p) => { if (p.variants && p.variants.length > 0) { const prices = p.variants.map(v => v.price); const min = Math.min(...prices); const max = Math.max(...prices); if (min === max) return `$${min}`; return `$${min} 起`; } return `$${p.price}`; };
+
+            const checkAvailability = (product) => {
+                const outMaterialIds = materials.filter(m => m.isOut).map(m => m.id);
+                if (product.materials && product.materials.some(id => outMaterialIds.includes(id))) return 'all_out'; 
+                if (product.variants && product.variants.length > 0) {
+                    const availableVariants = product.variants.filter(v => { const vMats = v.materials || []; return !vMats.some(id => outMaterialIds.includes(id)); });
+                    if (availableVariants.length === 0) return 'all_out'; 
+                    if (availableVariants.length < product.variants.length) return 'partial'; 
+                }
+                return 'ok';
+            };
+
+            const isOpenStatus = useMemo(() => {
+                if (settings.statusMode === 'open') return true;
+                if (settings.statusMode === 'closed') return false;
+                const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
+                const todayStr = now.toISOString().split('T')[0];
+                const currentTime = now.getHours() * 60 + now.getMinutes();
+                const currentDay = now.getDay(); 
+                const special = settings.specialDates?.find(sd => sd.date === todayStr);
+                if (special) {
+                    if (special.type === 'closed') return false;
+                    const [sh, sm] = (settings.openTime || "06:00").split(':').map(Number);
+                    const [eh, em] = (settings.closeTime || "13:30").split(':').map(Number);
+                    return currentTime >= (sh*60+sm) && currentTime <= (eh*60+em);
+                }
+                if (settings.closedDays?.includes(currentDay)) return false;
+                const [sh, sm] = (settings.openTime || "06:00").split(':').map(Number);
+                const [eh, em] = (settings.closeTime || "13:30").split(':').map(Number);
+                return currentTime >= (sh*60+sm) && currentTime <= (eh*60+em);
+            }, [settings]);
+
+            const filteredMenu = useMemo(() => {
+                const term = searchTerm.trim().toLowerCase();
+                return categories.map(cat => ({ ...cat, items: products.filter(p => { const matchSearch = !term || p.name.toLowerCase().includes(term); return p.categoryId === cat.id && !p.isHidden && matchSearch; }).sort((a,b) => a.sortOrder - b.sortOrder) })).filter(cat => cat.items.length > 0);
+            }, [categories, products, searchTerm]);
+
+            const addCoupon = () => {
+                const coupon = coupons.find(c => c.code === couponInput.trim().toUpperCase());
+                if (coupon) {
+                    if (myCoupons.some(c => c.code === coupon.code)) { showAlert("您已領取過此優惠券"); return; }
+                    if (new Date(coupon.expiry) < new Date()) { showAlert("此優惠券已過期"); return; }
+                    setMyCoupons([...myCoupons, coupon]);
+                    setCouponInput('');
+                    showAlert("優惠券領取成功！");
+                } else { showAlert("無效的優惠代碼"); }
+            };
+
+            const handleOpenSelection = (type, id, categoryId, defaultPrice) => { setSelectionModal({ type, id, categoryId, defaultPrice }); };
+            const handleProductSelectInModal = (prod) => {
+                if ((!prod.variants || prod.variants.length === 0) && (!prod.allowAddons || prod.allowAddons.length === 0)) {
+                    const choice = { id: prod.id, name: prod.name, price: prod.price, variantName: '', addons: [] };
+                    if (selectionModal.type === 'side') { setSelectedSideGroups({ ...selectedSideGroups, [selectionModal.id]: choice }); }
+                    else { setSelectedSetChoices({ ...selectedSetChoices, [selectionModal.id]: choice }); }
+                    setSelectionModal(null);
+                } else { 
+                    const defaultVariant = (prod.variants && prod.variants.length > 0) ? prod.variants[0] : null;
+                    setConfiguringProduct({ product: prod, variant: defaultVariant, addons: [] }); 
+                }
+            };
+            const confirmConfiguration = () => {
+                if (!configuringProduct) return;
+                const { product, variant, addons: confAddons } = configuringProduct;
+                if (product.variants && product.variants.length > 0 && !variant) { showAlert("請選擇規格"); return; }
+                const finalPrice = (variant ? variant.price : product.price) + confAddons.reduce((sum, a) => sum + a.price, 0);
+                const choice = { id: product.id, name: product.name, price: finalPrice, variantName: variant ? variant.name : '', addons: confAddons };
+                if (selectionModal.type === 'side') { setSelectedSideGroups({ ...selectedSideGroups, [selectionModal.id]: choice }); }
+                else { setSelectedSetChoices({ ...selectedSetChoices, [selectionModal.id]: choice }); }
+                setConfiguringProduct(null);
+                setSelectionModal(null);
+            };
+
+            const isSameItem = (item1, item2) => {
+                if (item1.productId !== item2.productId || item1.variantName !== item2.variantName || item1.set?.id !== item2.set?.id || item1.note !== item2.note) return false;
+                const addons1 = (item1.addons || []).map(a => a.id).sort();
+                const addons2 = (item2.addons || []).map(a => a.id).sort();
+                if (addons1.length !== addons2.length || !addons1.every((val, index) => val === addons2[index])) return false;
+                return true;
+            };
+
+            const handleAddToCart = () => {
+                if (!selectedItem) return;
+                let unitPrice = selectedItem.price;
+                let variantLabel = '';
+                if (selectedItem.variants && selectedItem.variants.length > 0) {
+                    if (!selectedVariant) { showAlert('請選擇規格'); return; }
+                    unitPrice = selectedVariant.price;
+                    variantLabel = selectedVariant.name;
+                }
+                let addonsTotal = selectedAddons.reduce((sum, ad) => sum + ad.price, 0);
+                let sidesTotal = 0;
+                selectedItem.sideGroups?.forEach(g => {
+                    const choice = selectedSideGroups[g.id];
+                    if (choice && g.allowChange && g.defaultProductId) {
+                        const defProd = products.find(p => p.id === g.defaultProductId);
+                        let defPrice = defProd ? defProd.price : 0;
+                        if (defProd && g.defaultVariantName) { const dv = defProd.variants?.find(v => v.name === g.defaultVariantName); if (dv) defPrice = dv.price; }
+                        sidesTotal += (choice.price - defPrice);
+                    }
+                });
+                let setTotal = 0;
+                if (selectedSet) {
+                    setTotal += selectedSet.price;
+                    selectedSet.contents?.forEach((c, idx) => {
+                         const choice = selectedSetChoices[idx];
+                         if (choice && c.type === 'category' && c.allowChange && c.defaultProductId) {
+                             const defProd = products.find(p => p.id === c.defaultProductId);
+                             let defPrice = defProd ? defProd.price : 0;
+                             if (defProd && c.defaultVariantName) { const dv = defProd.variants?.find(v => v.name === c.defaultVariantName); if (dv) defPrice = dv.price; }
+                             setTotal += (choice.price - defPrice);
+                         }
+                    });
+                }
+                const finalUnitPrice = unitPrice + addonsTotal + sidesTotal + setTotal;
+                const newItem = { productId: selectedItem.id, name: selectedItem.name, image: selectedItem.image, variantName: variantLabel, variant: selectedVariant, unitPrice: finalUnitPrice, qty: itemCount, totalPrice: finalUnitPrice * itemCount, addons: selectedAddons, sideGroups: selectedSideGroups, set: selectedSet, setChoices: selectedSetChoices, note: itemNote };
+                if (editingCartItem) {
+                    const duplicateIndex = cart.findIndex(item => item.id !== editingCartItem.id && isSameItem(item, newItem));
+                    if (duplicateIndex > -1) {
+                         const newCart = [...cart]; newCart[duplicateIndex].qty += newItem.qty; newCart[duplicateIndex].totalPrice = newCart[duplicateIndex].unitPrice * newCart[duplicateIndex].qty;
+                         setCart(newCart.filter(item => item.id !== editingCartItem.id));
+                    } else { setCart(cart.map(item => item.id === editingCartItem.id ? { ...newItem, id: editingCartItem.id } : item)); }
+                } else {
+                    const existingItemIndex = cart.findIndex(item => isSameItem(item, newItem));
+                    if (existingItemIndex > -1) { const newCart = [...cart]; newCart[existingItemIndex].qty += newItem.qty; newCart[existingItemIndex].totalPrice = newCart[existingItemIndex].unitPrice * newCart[existingItemIndex].qty; setCart(newCart); } else { setCart([...cart, { ...newItem, id: Date.now() }]); }
+                }
+                closeProductModal();
+            };
+
+            const openEditCartItem = (item) => {
+                const prod = products.find(p => p.id === item.productId);
+                if (!prod) return;
+                setSelectedItem(prod); setItemCount(item.qty); setSelectedVariant(item.variant); setSelectedAddons(item.addons); setSelectedSideGroups(item.sideGroups || {}); setSelectedSet(item.set); setSelectedSetChoices(item.setChoices || {}); if (item.set) setExpandedSetId(item.set.id); setItemNote(item.note); setEditingCartItem(item); setShowCartModal(false); 
+            };
+            const closeProductModal = () => { setSelectedItem(null); setEditingCartItem(null); setItemCount(1); setSelectedVariant(null); setSelectedAddons([]); setSelectedSideGroups({}); setSelectedSet(null); setSelectedSetChoices({}); setItemNote(''); setExpandedSetId(null); if (editingCartItem) setShowCartModal(true); };
+            const updateCartQty = (itemId, change) => { setCart(prevCart => prevCart.map(item => { if (item.id === itemId) { const newQty = Math.max(0, item.qty + change); return { ...item, qty: newQty, totalPrice: item.unitPrice * newQty }; } return item; }).filter(item => item.qty > 0)); };
+            const removeFromCart = (itemId) => { setCart(prevCart => prevCart.filter(item => item.id !== itemId)); };
+            const toggleFavorite = (e, prodId) => { e.stopPropagation(); if (favorites.includes(prodId)) setFavorites(favorites.filter(id => id !== prodId)); else setFavorites([...favorites, prodId]); };
+            
+            const reorder = (historyOrder) => {
+                const newCartItems = historyOrder.items.map(oldItem => ({ ...oldItem, id: Date.now() + Math.random() }));
+                setCart([...cart, ...newCartItems]);
+                showAlert('已將訂單內容加入購物車');
+                setCurrentView('menu');
+            };
+
+            const handlePreSubmit = () => {
+                if (!userInfo.name || !userInfo.phone) { showAlert("請填寫姓名與電話"); return; }
+                if (!pickupDate) { showAlert("請選擇取餐日期"); return; }
+                if (!isASAP && (!pickupHour || !pickupMinute)) { showAlert("請選擇取餐時間"); return; }
+                if (cart.length === 0) return;
+                // Check if user is logged in via Firebase before submitting
+                if (!currentUser) { showAlert("請先登入 LINE (請在 LINE 中開啟)"); return; }
+                setShowSubmitConfirm(true);
+            };
+
+            // CREATE FLEX MESSAGE FUNCTION
+            // ==========================================
+            //   新版 Flex Message (2025/12/24 最終定稿版)
+            //   - 依照您提供的 JSON 結構重建
+            // ==========================================
+            const createFlexMessage = (order) => {
+                // 顏色定義
+                const BRAND_COLOR = "#5B2274";
+                const RED_COLOR = "#EF4444";
+                const GREEN_COLOR = "#10B981";
+                const TEXT_COLOR = "#1E293B";
+                const SUB_TEXT_COLOR = "#64748B";
+
+                // 工具函式
+                const safeStr = (val) => (val !== undefined && val !== null) ? String(val) : "";
+                
+                const formatDateTime = (isoString) => {
+                    if (!isoString) return "";
+                    try {
+                        const d = new Date(isoString);
+                        const twDate = new Date(d.toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
+                        const yyyy = twDate.getFullYear();
+                        const mm = String(twDate.getMonth() + 1).padStart(2, '0');
+                        const dd = String(twDate.getDate()).padStart(2, '0');
+                        const hh = String(twDate.getHours()).padStart(2, '0');
+                        const min = String(twDate.getMinutes()).padStart(2, '0');
+                        return `${yyyy}/${mm}/${dd} ${hh}:${min}`;
+                    } catch (e) {
+                        return "";
+                    }
+                };
+                
+                // 資料處理
+                const orderTimeStr = formatDateTime(order.createdAt);
+                const userInfo = order.userInfo || {};
+                const pickupDateDisplay = (userInfo.pickupDate || "").replace(/-/g, '/');
+                const pickupTimeDisplay = userInfo.pickupTime || "";
+                // 判斷聯絡方式文字
+                const contactMethodText = userInfo.contactMethod === 'line' ? '優先 LINE 聯絡' : '優先電話聯絡';
+
+                // 產生餐點列表 (維持 Box Padding 縮排邏輯)
+                const generateItemRows = () => {
+                    if (!Array.isArray(order.items) || order.items.length === 0) {
+                        return [{ type: "text", text: "無餐點資料", color: SUB_TEXT_COLOR, align: "center" }];
+                    }
+
+                    return order.items.flatMap((item, index) => {
+                        const details = [];
+                        if (item.variantName) details.push(`規格：${item.variantName}`);
+                        
+                        if (Array.isArray(item.addons) && item.addons.length > 0) {
+                            details.push(`客製：${item.addons.map(a => a.name).join('、')}`);
+                        }
+
+                        if (item.set && item.setChoices) {
+                            const setContentStr = Object.values(item.setChoices).map(c => {
+                                let s = c.name;
+                                if(c.variantName) s += `(${c.variantName})`;
+                                return s;
+                            }).join('、');
+                            if(setContentStr) details.push(`套餐：${setContentStr}`);
+                        }
+
+                        if (item.sideGroups && Object.keys(item.sideGroups).length > 0) {
+                            const sideStr = Object.values(item.sideGroups).map(c => {
+                                let s = c.name;
+                                if(c.variantName) s += `(${c.variantName})`;
+                                return s;
+                            }).join('、');
+                            if(sideStr) details.push(`附餐：${sideStr}`);
+                        }
+                        
+                        if (item.note) details.push(`備註：${item.note}`);
+
+                        const rowComponents = [
+                            // 1. 餐點名稱/數量/價格
+                            {
+                                type: "box", layout: "horizontal",
+                                margin: index > 0 ? "md" : "none",
+                                contents: [
+                                    { type: "text", text: `${item.qty} x`, size: "md", color: TEXT_COLOR, flex: 1, weight: "bold" },
+                                    { type: "text", text: String(item.name || ""), size: "md", color: TEXT_COLOR, flex: 4, wrap: true, weight: "bold" },
+                                    { type: "text", text: `$${item.totalPrice}`, size: "md", color: TEXT_COLOR, flex: 2, align: "end", weight: "bold" }
+                                ]
+                            },
+                            // 2. 細項縮排
+                            ...(details.length > 0 ? [{
+                                type: "box", layout: "vertical", paddingStart: "xxl",
+                                contents: details.map((detail, i) => ({
+                                    type: "text", text: detail, size: "xs", color: SUB_TEXT_COLOR, wrap: true, margin: i > 0 ? "xs" : "none"
+                                }))
+                            }] : []),
+                            // 3. 分隔線 (除了最後一項)
+                            ...(index < order.items.length - 1 ? [{ type: "separator", margin: "md" }] : [])
+                        ];
+
+                        return rowComponents;
+                    });
+                };
+
+                return {
+                    type: "flex",
+                    altText: `新訂單通知：${safeStr(userInfo.name)}`,
+                    contents: {
+                        type: "bubble",
+                        body: {
+                            type: "box",
+                            layout: "vertical",
+                            contents: [
+                                // --- 店名 ---
+                                {
+                                    type: "text",
+                                    text: "城市漢堡 虎尾光復店",
+                                    weight: "bold",
+                                    color: BRAND_COLOR,
+                                    size: "md",
+                                    align: "center"
+                                },
+                                
+                                // --- 標題區 (新訂單 + 自取) ---
+                                {
+                                    type: "box",
+                                    layout: "horizontal",
+                                    justifyContent: "center",
+                                    alignItems: "center",
+                                    margin: "md",
+                                    contents: [
+                                        {
+                                            type: "text",
+                                            text: "新訂單通知",
+                                            size: "xl",
+                                            color: RED_COLOR,
+                                            weight: "bold",
+                                            flex: 0
+                                        },
+                                        {
+                                            type: "box",
+                                            layout: "vertical",
+                                            backgroundColor: RED_COLOR,
+                                            cornerRadius: "md",
+                                            paddingStart: "lg",
+                                            paddingEnd: "lg",
+                                            paddingTop: "xs",
+                                            paddingBottom: "xs",
+                                            margin: "md",
+                                            flex: 0,
+                                            contents: [
+                                                {
+                                                    type: "text",
+                                                    text: "自取",
+                                                    color: "#ffffff",
+                                                    size: "lg",
+                                                    weight: "bold"
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                },
+
+                                // --- 取餐時間區塊 ---
+                                {
+                                    type: "box",
+                                    layout: "horizontal",
+                                    justifyContent: "center",
+                                    margin: "xl", // 上方大間距
+                                    contents: [
+                                        {
+                                            type: "box",
+                                            layout: "vertical",
+                                            backgroundColor: BRAND_COLOR,
+                                            cornerRadius: "md",
+                                            paddingAll: "sm",
+                                            width: "100px",
+                                            contents: [
+                                                {
+                                                    type: "text",
+                                                    text: "取餐時間",
+                                                    color: "#ffffff",
+                                                    size: "sm",
+                                                    weight: "bold",
+                                                    align: "center"
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                },
+                                {
+                                    type: "text",
+                                    text: pickupDateDisplay,
+                                    size: "xl",
+                                    weight: "bold",
+                                    align: "center",
+                                    margin: "md",
+                                    color: BRAND_COLOR
+                                },
+                                {
+                                    type: "text",
+                                    text: pickupTimeDisplay,
+                                    size: "4xl",
+                                    weight: "bold",
+                                    align: "center",
+                                    color: BRAND_COLOR
+                                },
+                                {
+                                    type: "separator",
+                                    margin: "xl", // 下方大間距
+                                    color: TEXT_COLOR
+                                },
+
+                                // --- 餐點列表 ---
+                                {
+                                    type: "box",
+                                    layout: "vertical",
+                                    margin: "lg",
+                                    spacing: "xs",
+                                    contents: generateItemRows()
+                                },
+
+                                {
+                                    type: "separator",
+                                    margin: "lg",
+                                    color: TEXT_COLOR
+                                },
+
+                                // --- 金額區 ---
+                                {
+                                    type: "text",
+                                    text: "訂單總金額",
+                                    size: "md",
+                                    weight: "bold",
+                                    align: "center",
+                                    color: TEXT_COLOR,
+                                    margin: "lg"
+                                },
+                                {
+                                    type: "text",
+                                    text: `$${order.totalPrice}`,
+                                    size: "4xl",
+                                    weight: "bold",
+                                    align: "center",
+                                    color: TEXT_COLOR,
+                                    margin: "sm"
+                                },
+                                
+                                // --- 折扣區 (判斷是否有折扣) ---
+                                (order.discountAmount > 0 ? {
+                                    type: "box",
+                                    layout: "horizontal",
+                                    justifyContent: "center",
+                                    alignItems: "center",
+                                    margin: "md",
+                                    contents: [
+                                        {
+                                            type: "text",
+                                            text: "折扣優惠：",
+                                            size: "md",
+                                            color: TEXT_COLOR,
+                                            flex: 0
+                                        },
+                                        {
+                                            type: "box",
+                                            layout: "vertical",
+                                            backgroundColor: RED_COLOR,
+                                            cornerRadius: "md",
+                                            paddingStart: "sm",
+                                            paddingEnd: "sm",
+                                            flex: 0,
+                                            margin: "sm",
+                                            contents: [
+                                                {
+                                                    type: "text",
+                                                    text: order.discountApplied === 'loyalty' ? "集點卡" : "優惠券",
+                                                    color: "#ffffff",
+                                                    size: "xs",
+                                                    weight: "bold"
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            type: "text",
+                                            text: `-$${order.discountAmount}`,
+                                            color: RED_COLOR,
+                                            size: "md",
+                                            weight: "bold",
+                                            margin: "sm"
+                                        }
+                                    ]
+                                } : { type: "spacer", size: "xs" }),
+
+                                {
+                                    type: "separator",
+                                    margin: "lg",
+                                    color: TEXT_COLOR
+                                },
+
+                                // --- 訂單編號 ---
+                                {
+                                    type: "box",
+                                    layout: "baseline",
+                                    margin: "lg",
+                                    contents: [
+                                        {
+                                            type: "text",
+                                            text: "訂單編號：",
+                                            size: "sm",
+                                            color: SUB_TEXT_COLOR,
+                                            flex: 0
+                                        },
+                                        {
+                                            type: "text",
+                                            text: safeStr(order.orderId),
+                                            size: "sm",
+                                            color: TEXT_COLOR,
+                                            weight: "bold",
+                                            flex: 1
+                                        }
+                                    ]
+                                },
+                                // --- 訂餐時間 ---
+                                {
+                                    type: "box",
+                                    layout: "baseline",
+                                    margin: "sm",
+                                    contents: [
+                                        {
+                                            type: "text",
+                                            text: "訂餐時間：",
+                                            size: "sm",
+                                            color: SUB_TEXT_COLOR,
+                                            flex: 0
+                                        },
+                                        {
+                                            type: "text",
+                                            text: orderTimeStr,
+                                            size: "sm",
+                                            color: TEXT_COLOR,
+                                            flex: 1
+                                        }
+                                    ]
+                                },
+                                
+                                {
+                                    type: "separator",
+                                    margin: "lg",
+                                    color: TEXT_COLOR
+                                },
+
+                                // --- 取餐人 ---
+                                {
+                                    type: "box",
+                                    layout: "baseline",
+                                    margin: "lg",
+                                    contents: [
+                                        {
+                                            type: "text",
+                                            text: "取餐人：",
+                                            size: "md",
+                                            color: SUB_TEXT_COLOR,
+                                            flex: 0
+                                        },
+                                        {
+                                            type: "text",
+                                            text: safeStr(userInfo.name),
+                                            size: "md", // 您的 JSON 是 md
+                                            color: TEXT_COLOR,
+                                            weight: "bold",
+                                            flex: 1,
+                                            wrap: true
+                                        }
+                                    ]
+                                },
+                                // --- 連絡電話 ---
+                                {
+                                    type: "box",
+                                    layout: "baseline",
+                                    margin: "md",
+                                    spacing: "none", // 依照您的 JSON 設定
+                                    contents: [
+                                        {
+                                            type: "text",
+                                            text: "連絡電話：",
+                                            size: "md",
+                                            color: SUB_TEXT_COLOR,
+                                            flex: 0
+                                        },
+                                        {
+                                            type: "text",
+                                            text: safeStr(userInfo.phone),
+                                            size: "md",
+                                            color: TEXT_COLOR,
+                                            weight: "bold",
+                                            flex: 1
+                                        }
+                                    ]
+                                },
+                                // --- 優先聯絡方式 (綠色大按鈕) ---
+                                {
+                                    type: "box",
+                                    layout: "horizontal",
+                                    margin: "md",
+                                    contents: [
+                                        {
+                                            type: "box",
+                                            layout: "vertical",
+                                            backgroundColor: GREEN_COLOR,
+                                            cornerRadius: "md",
+                                            paddingStart: "sm",
+                                            paddingEnd: "sm",
+                                            paddingTop: "xs",
+                                            paddingBottom: "xs",
+                                            flex: 1,
+                                            contents: [
+                                                {
+                                                    type: "text",
+                                                    text: contactMethodText,
+                                                    color: "#ffffff",
+                                                    size: "lg", // 您的 JSON 設定為 lg
+                                                    weight: "bold",
+                                                    align: "center"
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                };
+            };
+
+            const confirmSubmitOrder = async () => {
+                let discountAmount = 0;
+                if (useLoyaltyCard) discountAmount = 50;
+                else if (selectedCoupon) { if (cartTotal >= selectedCoupon.minSpend) discountAmount = selectedCoupon.discount; }
+                const total = Math.max(0, cartTotal - discountAmount);
+
+                const finalTime = isASAP ? "ASAP" : `${pickupHour.toString().padStart(2, '0')}:${pickupMinute.toString().padStart(2, '0')}`;
+                
+                const randomId = `OD${Date.now().toString().slice(-6)}`;
+                
+                const newOrder = { 
+                    orderId: randomId, 
+                    items: cart, 
+                    totalPrice: total, 
+                    originalPrice: cartTotal,
+                    discountApplied: useLoyaltyCard ? 'loyalty' : (selectedCoupon ? selectedCoupon.code : null), 
+                    discountAmount, 
+                    userInfo: { ...userInfo, pickupDate, pickupTime: finalTime },
+                    // 如果有點擊 LIFF 登入，會有 currentUser.uid，否則標記為 guest
+                    customerUid: currentUser ? currentUser.uid : 'guest', 
+                    createdAt: new Date().toISOString(), 
+                    status: 'pending',
+                    read: false
+                };
+
+                if (userInfo.remember) localStorage.setItem('cb_user_info', JSON.stringify({ name: userInfo.name, phone: userInfo.phone, remember: true, contactMethod: userInfo.contactMethod }));
+                else localStorage.removeItem('cb_user_info');
+                
+                // 更新本地歷史紀錄
+                const updatedHistory = [newOrder, ...orderHistory];
+                setOrderHistory(updatedHistory);
+                
+                try {
+                    const { db, appId, addDoc, collection } = window;
+                    
+                    // 1. 寫入資料庫
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), newOrder);
+                    
+                    // 2. 嘗試發送 LINE 訊息 (加入詳細除錯 Alert)
+                    if (appMode === 'order') {
+                        if (window.liff && window.liff.isInClient()) {
+                            // 建立訊息內容
+                            const flexMessage = createFlexMessage(newOrder);
+                            
+                            // 執行傳送
+                            await window.liff.sendMessages([flexMessage])
+                                .then(() => {
+                                    // 成功不跳窗，安靜通過
+                                    console.log("Message sent to OA");
+                                })
+                                .catch((err) => {
+                                    // ★★★ 關鍵：這裡會顯示為什麼失敗 ★★★
+                                    alert("❌ 訊息傳送失敗\n錯誤代碼: " + err.code + "\n原因: " + err.message);
+                                    console.error("LIFF Send Error", err);
+                                });
+                        } else {
+                            // 如果程式判斷不在 LINE 內，會跳這個
+                            // alert("⚠️ 偵測到不在 LINE App 內，跳過訊息發送");
+                        }
+                    }
+
+                    // 重置購物車與畫面
+                    setCart([]); setShowCartModal(false); setUseLoyaltyCard(false); setSelectedCoupon(null); setCurrentView('history'); setShowSubmitConfirm(false);
+                    showAlert("訂單已送出！店家已收到通知");
+
+                } catch(e) {
+                    console.error(e);
+                    alert("系統錯誤: " + e.message);
+                }
+            };
+
+            const openCancelConfirm = (order) => { setCancelConfirmModal({ show: true, order }); };
+
+            const confirmCancelOrder = async () => {
+                if (!cancelConfirmModal.order) return;
+                const updatedHistory = orderHistory.map(order => 
+                    order.orderId === cancelConfirmModal.order.orderId ? { ...order, status: 'cancelled' } : order
+                );
+                setOrderHistory(updatedHistory);
+                localStorage.setItem('cb_history', JSON.stringify(updatedHistory));
+                setCancelConfirmModal({ show: false, order: null });
+                showAlert("訂單已取消");
+            };
+
+            const cartTotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
+            const cartCount = cart.reduce((sum, item) => sum + item.qty, 0);
+            const finalTotal = Math.max(0, cartTotal - (useLoyaltyCard ? 50 : (selectedCoupon ? selectedCoupon.discount : 0)));
+
+            const getCartItemQty = (prodId) => cart.filter(item => item.productId === prodId).reduce((sum, item) => sum + item.qty, 0);
+            
+            useEffect(() => { if (currentView !== 'menu') return; const observer = new IntersectionObserver((entries) => { if (isClickScroll.current) return; const visibleSection = entries.find(entry => entry.isIntersecting); if (visibleSection) setActiveCategory(visibleSection.target.id); }, { root: menuRef.current, rootMargin: '-10% 0px -80% 0px', threshold: 0 }); categories.forEach(cat => { if (categoryRefs.current[cat.id]) observer.observe(categoryRefs.current[cat.id]); }); return () => observer.disconnect(); }, [categories, currentView]);
+
+            const getGroupedAddons = (targetAddons) => { const groups = {}; targetAddons.forEach(a => { const cat = a.category || '其他'; if (!groups[cat]) groups[cat] = []; groups[cat].push(a); }); const definedGroups = settings.addonGroups || []; const result = definedGroups.map(dg => ({ name: dg.name, items: (groups[dg.name] || []).sort((a,b) => (a.sortOrder||0) - (b.sortOrder||0)) })).filter(g => g.items.length > 0); const definedNames = definedGroups.map(dg => dg.name); Object.keys(groups).forEach(catName => { if (!definedNames.includes(catName)) { result.push({ name: catName, items: groups[catName].sort((a,b) => (a.sortOrder||0) - (b.sortOrder||0)) }); } }); return result; };
+            const groupedItemAddons = useMemo(() => { if (!selectedItem || !selectedItem.allowAddons) return []; const validAddons = addons.filter(a => selectedItem.allowAddons.includes(a.id)); return getGroupedAddons(validAddons); }, [selectedItem, addons, settings.addonGroups]);
+            
+            const ProductCard = ({ item }) => {
+                const availability = checkAvailability(item);
+                const isSoldOut = availability === 'all_out';
+                const isFav = favorites.includes(item.id);
+                const qtyInCart = getCartItemQty(item.id);
+                return (
+                    <article onClick={() => setSelectedItem(item)} className={`flex items-start gap-4 transition-transform group cursor-pointer ${isSoldOut ? '' : 'active:scale-[0.98]'}`}>
+                        <div className="w-24 h-24 rounded-2xl bg-slate-50 overflow-hidden shrink-0 shadow-sm relative aspect-square group-hover:shadow-md transition-all border border-slate-100">
+                            <img src={getOptimizedImage(item.image, 300)} className={`w-full h-full object-cover transition-transform duration-500 ${isSoldOut ? 'grayscale opacity-70' : ''}`} loading="lazy" />
+                            {isSoldOut && <div className="absolute inset-0 bg-black/10 flex items-center justify-center z-10"><span className="text-white font-black text-xs border-2 border-white px-1.5 py-0.5 rounded -rotate-12 bg-black/40">已售完</span></div>}
+                            <div className={`absolute top-1 left-1 flex flex-col gap-0.5 z-20`}>{item.tags?.map(tId => { const tag = settings.productTags?.find(t => t.id === tId); return tag ? <span key={tId} className={`text-[8px] px-1.5 py-0.5 rounded-md font-bold shadow-sm ${TAG_COLORS[tag.color]}`}>{tag.label}</span> : null; })}</div>
+                            <button onClick={(e) => toggleFavorite(e, item.id)} className="absolute top-1 right-1 p-1 rounded-full bg-white/80 shadow-sm z-30"><Icon name="heart" size={14} className={isFav ? "fill-red-500 text-red-500" : "text-slate-400"} /></button>
+                        </div>
+                        <div className={`flex-1 min-w-0 py-1 flex flex-col h-24 justify-between ${isSoldOut ? 'opacity-50' : ''}`}>
+                            <div><h3 className="text-[16px] font-bold text-slate-900 truncate pr-2 leading-tight">{item.name}</h3><p className="text-[12px] text-slate-400 truncate mt-1 font-medium">{item.desc}</p></div>
+                            <div className="flex justify-between items-end"><div className="flex flex-col"><span className="font-black text-[17px] text-[#5B2274]">{getDisplayPrice(item)}</span></div>{!isSoldOut && (qtyInCart > 0 ? <div className="w-7 h-7 rounded-full bg-[#5B2274] text-white flex items-center justify-center font-bold text-xs shadow-md">{qtyInCart}</div> : <button className="w-7 h-7 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center group-hover:bg-[#5B2274] group-hover:text-white transition-colors"><Icon name="plus" size={16} /></button>)}</div>
+                        </div>
+                    </article>
+                );
+            };
+
+            return (
+                <div className="h-screen flex flex-col overflow-hidden bg-[#F8F9FA]">
+                    <header className="shrink-0 relative z-30 header-curve shadow-xl" style={{ backgroundColor: BRAND_COLOR }}>
+                        <div className="px-6 pt-8 pb-10 space-y-5">
+                            <div className="flex justify-between items-center">
+                                <h1 className="text-2xl font-[900] text-white tracking-tight leading-none drop-shadow-md whitespace-nowrap">城市漢堡 虎尾光復店</h1>
+                                <div className="flex items-center gap-2">
+                                    <div className={`px-3 py-1.5 rounded-full shadow-lg transition-all flex items-center gap-1.5 ${isOpenStatus ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
+                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-white animate-pulse"></span>
+                                        <span className="text-[11px] font-black tracking-wide leading-none pt-0.5">{isOpenStatus ? '營業中' : '休息中'}</span>
+                                    </div>
+                                    <button onClick={() => setShowInfoModal(true)} className="w-8 h-8 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-white active:scale-95 transition-all border border-white/10 hover:bg-white/30"><Icon name="info" size={18} /></button>
+                                </div>
+                            </div>
+                            <div className="flex justify-between items-center text-white/90 text-[13px] font-bold px-1">
+                                <a href={settings.mapsUrl || "#"} target="_blank" className="flex items-center gap-1.5 active:opacity-70 hover:text-white transition-opacity max-w-[60%]"><Icon name="map-pin" size={16} className="opacity-80" /><span className="truncate">{settings.address || '載入中...'}</span></a>
+                                <a href={`tel:${settings.phone}`} className="flex items-center gap-1.5 active:opacity-70 hover:text-white transition-opacity"><Icon name="phone" size={16} className="opacity-80" />{settings.phone}</a>
+                            </div>
+                        </div>
+                    </header>
+
+                    {currentView === 'menu' && <SmartMarquee announcements={settings.announcements} />}
+
+                    {currentView === 'menu' && (
+                        <div className="px-6 mb-2 mt-4 relative z-30">
+                             <div className="relative group">
+                                <div className="absolute left-4 top-1/2 -translate-y-1/2 transition-colors z-10 pt-1"><SearchIcon active={isSearchActive} /></div>
+                                <input type="text" placeholder="想吃點什麼？" className="w-full bg-white rounded-2xl py-3.5 pl-12 pr-4 text-slate-700 placeholder:text-slate-400 font-bold shadow-md border border-slate-100 outline-none focus:ring-0 focus:border-slate-400 transition-all" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} onFocus={() => setIsSearchActive(true)} onBlur={() => setIsSearchActive(false)} />
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="flex flex-1 overflow-hidden bg-white mt-1 pb-20 relative">
+                        {currentView === 'menu' && (
+                            <>
+                                <nav className="w-24 bg-slate-50 border-r border-slate-100 overflow-y-auto no-scrollbar shrink-0 pt-2 pb-24">
+                                    {filteredMenu.map(cat => (
+                                        <button key={cat.id} onClick={() => { isClickScroll.current = true; setActiveCategory(cat.id); categoryRefs.current[cat.id]?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setTimeout(() => isClickScroll.current = false, 800); }} className={`w-full py-5 px-1 text-[13px] font-black text-center relative transition-all duration-300 flex flex-col items-center gap-1.5 ${activeCategory === cat.id ? 'text-[#5B2274] bg-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>
+                                            {activeCategory === cat.id && <div className="absolute left-0 top-1/2 -translate-y-1/2 h-8 w-1.5 rounded-r-full" style={{ backgroundColor: BRAND_COLOR }}></div>}
+                                            <span className="z-10 leading-tight px-1">{cat.name}</span>
+                                        </button>
+                                    ))}
+                                </nav>
+                                <main ref={menuRef} className="flex-1 overflow-y-auto p-5 no-scrollbar scroll-smooth bg-white pb-32">
+                                    {filteredMenu.map(cat => (
+                                        <section key={cat.id} id={cat.id} ref={el => categoryRefs.current[cat.id] = el} className="mb-10">
+                                            <div className="flex items-center gap-3 mb-6"><span className="text-lg font-[900] tracking-tight text-slate-800">{cat.name}</span><div className="h-1 w-1 bg-slate-200 rounded-full"></div><div className="h-[1px] bg-slate-100 flex-1"></div></div>
+                                            <div className="grid grid-cols-1 gap-6">
+                                                {cat.items.map(item => <ProductCard key={item.id} item={item} />)}
+                                            </div>
+                                        </section>
+                                    ))}
+                                </main>
+                            </>
+                        )}
+                        {currentView === 'favorites' && (
+                            <div className="flex-1 overflow-y-auto p-5 pb-32 no-scrollbar">
+                                <h2 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2"><Icon name="heart" className="text-red-500 fill-red-500" /> 我的收藏</h2>
+                                {favorites.length === 0 ? <div className="text-center text-slate-400 mt-20">還沒有收藏任何餐點喔</div> : (
+                                    <div className="space-y-8">
+                                        {categories.map(cat => {
+                                            const favItems = products.filter(p => p.categoryId === cat.id && favorites.includes(p.id));
+                                            if (favItems.length === 0) return null;
+                                            return (
+                                                <section key={cat.id}>
+                                                    <div className="flex items-center gap-3 mb-4"><span className="text-lg font-[900] tracking-tight text-slate-800">{cat.name}</span><div className="h-1 w-1 bg-slate-200 rounded-full"></div><div className="h-[1px] bg-slate-100 flex-1"></div></div>
+                                                    <div className="grid grid-cols-1 gap-6">{favItems.map(item => <ProductCard key={item.id} item={item} />)}</div>
+                                                </section>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        {currentView === 'coupons' && (
+                            <div className="flex-1 overflow-y-auto p-5 pb-32">
+                                <h2 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2"><Icon name="ticket" className="text-slate-600" /> 優惠券</h2>
+                                <div className="flex gap-2 mb-6">
+                                    <input type="text" placeholder="輸入優惠代碼" className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-[#5B2274]" value={couponInput} onChange={e => setCouponInput(e.target.value)} />
+                                    <button onClick={addCoupon} className="bg-slate-800 text-white px-4 rounded-xl font-bold text-sm">新增</button>
+                                </div>
+                                {myCoupons.length === 0 ? <div className="text-center text-slate-400 mt-10">目前沒有優惠券</div> : (
+                                    <div className="space-y-4">
+                                        {myCoupons.map((coupon, idx) => (
+                                            <div key={idx} className="coupon-ticket bg-white p-4 shadow-sm filter drop-shadow-sm flex items-center gap-4 relative overflow-hidden">
+                                                <div className="w-16 h-16 bg-purple-50 rounded-lg flex items-center justify-center text-[#5B2274] font-black text-xl shrink-0">${coupon.discount}</div>
+                                                <div className="flex-1 min-w-0"><h3 className="font-black text-slate-800">{coupon.title}</h3><p className="text-xs text-slate-500 mt-1">{coupon.desc}</p><p className="text-[10px] text-slate-400 mt-2">有效期至 {coupon.expiry}</p></div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        {currentView === 'history' && (
+                            <div className="flex-1 overflow-y-auto p-5 pb-32">
+                                <h2 className="text-xl font-black text-slate-800 mb-2 flex items-center gap-2"><Icon name="history" className="text-slate-600" /> 訂單紀錄</h2>
+                                <p className="text-xs text-slate-400 mb-4 font-bold">僅顯示最近 30 天內的訂單</p>
+                                {orderHistory.filter(o => { const orderDate = new Date(o.createdAt); const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30); return orderDate >= thirtyDaysAgo; }).length === 0 ? (
+                                    <div className="text-center text-slate-400 mt-20">尚無近 30 天訂單紀錄</div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        {orderHistory.filter(o => { const orderDate = new Date(o.createdAt); const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30); return orderDate >= thirtyDaysAgo; }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).map((order, idx) => (
+                                            <OrderHistoryItem key={idx} order={order} onReorder={reorder} onCancel={openCancelConfirm} />
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around items-center h-16 z-50 shadow-[0_-5px_15px_rgba(0,0,0,0.05)]">
+                        <button onClick={() => setCurrentView('menu')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'menu' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="utensils" size={20} /><span className="text-[10px] font-bold">菜單</span></button>
+                        <button onClick={() => setCurrentView('favorites')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'favorites' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="heart" size={20} className={currentView === 'favorites' ? 'fill-current' : ''} /><span className="text-[10px] font-bold">收藏</span></button>
+                        <button onClick={() => setCurrentView('coupons')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'coupons' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="ticket" size={20} /><span className="text-[10px] font-bold">優惠券</span></button>
+                        <button onClick={() => setCurrentView('history')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'history' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="history" size={20} /><span className="text-[10px] font-bold">紀錄</span></button>
+                    </div>
+
+                    {cart.length > 0 && currentView === 'menu' && (
+                        <div className="fixed bottom-20 left-4 right-4 z-40 animate-bounce-subtle">
+                            <button onClick={() => setShowCartModal(true)} className="w-full bg-[#5B2274] text-white p-4 rounded-2xl shadow-xl flex justify-between items-center hover:bg-[#4a1b5e] transition-colors"><div className="flex items-center gap-3"><div className="bg-white/20 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm">{cartCount}</div><span className="font-bold text-lg">查看購物車</span></div><span className="font-black text-xl">${cartTotal}</span></button>
+                        </div>
+                    )}
+
+                    {/* Message Modal */}
+                    {messageModal.show && (
+                        <div className="fixed inset-0 bg-black/60 z-[90] flex items-center justify-center p-6 backdrop-blur-sm animate-fade-in" onClick={() => setMessageModal({ show: false, content: '' })}>
+                            <div className="bg-white w-full max-w-xs rounded-3xl p-6 shadow-2xl animate-slide-up text-center relative" onClick={e => e.stopPropagation()}>
+                                <div className="mb-4"><div className="w-12 h-12 bg-slate-100 text-slate-600 rounded-full flex items-center justify-center mx-auto mb-2"><Icon name="info" size={24} /></div><p className="text-slate-700 font-bold leading-relaxed">{messageModal.content}</p></div>
+                                <button onClick={() => setMessageModal({ show: false, content: '' })} className="w-full py-3 rounded-xl font-bold bg-[#5B2274] text-white shadow-lg active:scale-95 transition-transform">好</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Cancel Confirmation Modal */}
+                    {cancelConfirmModal.show && (
+                        <div className="fixed inset-0 bg-black/60 z-[90] flex items-center justify-center p-6 backdrop-blur-sm animate-fade-in" onClick={() => setCancelConfirmModal({ show: false, order: null })}>
+                            <div className="bg-white w-full max-w-xs rounded-3xl p-6 shadow-2xl animate-slide-up text-center relative" onClick={e => e.stopPropagation()}>
+                                <div className="mb-4"><div className="w-12 h-12 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-2"><Icon name="alert-triangle" size={24} /></div><h3 className="text-xl font-[900] text-slate-800 mb-2">確定要取消訂單？</h3><p className="text-sm text-slate-500 font-bold">取消後將無法復原</p></div>
+                                <div className="flex gap-3"><button onClick={() => setCancelConfirmModal({ show: false, order: null })} className="flex-1 py-3 rounded-xl font-bold bg-slate-100 text-slate-600 active:scale-95 transition-transform">保留</button><button onClick={confirmCancelOrder} className="flex-1 py-3 rounded-xl font-bold bg-red-500 text-white shadow-lg active:scale-95 transition-transform">確認取消</button></div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Selected Item Modal */}
+                    {selectedItem && (
+                        <div className="fixed inset-0 bg-black/80 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in backdrop-blur-sm" onClick={() => closeProductModal()}>
+                            <div className="bg-white w-full max-w-md rounded-t-[40px] sm:rounded-[40px] overflow-hidden shadow-2xl flex flex-col animate-slide-up max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                                <div className="relative aspect-[16/9] w-full shrink-0 overflow-hidden bg-slate-100">
+                                    <img src={getOptimizedImage(selectedItem.image, 800)} className={`w-full h-full object-cover ${checkAvailability(selectedItem) === 'all_out' ? 'grayscale opacity-50' : ''}`} />
+                                    <button onClick={() => closeProductModal()} className="absolute top-4 right-4 bg-black/40 text-white p-2.5 rounded-full backdrop-blur-md active:scale-90 transition-transform z-10"><Icon name="x" size={24} /></button>
+                                    {checkAvailability(selectedItem) === 'all_out' && <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><div className="bg-black/60 text-white text-3xl font-black px-6 py-2 border-4 border-white transform -rotate-6 tracking-widest uppercase">已售完</div></div>}
+                                    <div className="absolute top-4 left-4 flex gap-1.5 flex-wrap z-20">{selectedItem.tags?.map(tId => { const tag = settings.productTags?.find(t => t.id === tId); return tag ? <span key={tId} className={`text-xs px-2 py-1 rounded-lg font-bold shadow-sm backdrop-blur-sm ${TAG_COLORS[tag.color]}`}>{tag.label}</span> : null; })}</div>
+                                </div>
+                                <div className="p-8 space-y-8 overflow-y-auto no-scrollbar bg-white pb-28">
+                                    <div className="space-y-4">
+                                        <div className="flex justify-between items-start"><h2 className="text-2xl font-black text-slate-900 leading-tight pr-4">{selectedItem.name}</h2><span className="text-2xl font-black text-[#5B2274]">{getDisplayPrice(selectedItem)}</span></div>
+                                        {selectedItem.desc && <div className="space-y-1"><p className="text-[11px] font-[900] text-slate-400 uppercase tracking-widest">商品內容</p><p className="text-[14px] font-bold leading-relaxed text-slate-600">{selectedItem.desc}</p></div>}
+                                        <p className="text-[10px] font-bold text-red-500 bg-red-50 px-2 py-1 rounded inline-block">※ 圖片僅供參考，餐點以實物為主</p>
+                                        {selectedItem.note && checkAvailability(selectedItem) !== 'all_out' && <div className="p-3 bg-orange-50 border border-orange-200 rounded-xl flex gap-2 shadow-sm"><Icon name="info" size={20} className="text-orange-500 shrink-0 mt-0.5" /><p className="text-xs font-bold text-orange-800 leading-tight flex items-center">{selectedItem.note}</p></div>}
+                                    </div>
+                                    {selectedItem.variants?.length > 0 && (
+                                        <div className="space-y-3">
+                                            <p className="text-[11px] font-[900] text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-1">規格選擇</p>
+                                            <div className="grid grid-cols-3 gap-2">
+                                                {selectedItem.variants.map((v, i) => {
+                                                    const outMaterialIds = materials.filter(m => m.isOut).map(m => m.id);
+                                                    const isVariantOut = (v.materials || []).some(id => outMaterialIds.includes(id));
+                                                    const isSelected = selectedVariant?.name === v.name;
+                                                    return (<button key={i} disabled={isVariantOut} onClick={() => setSelectedVariant(v)} className={`flex flex-col justify-between items-center p-3 rounded-xl border transition-all ${isSelected ? 'border-[#5B2274] bg-purple-50 ring-2 ring-[#5B2274]' : 'bg-white border-slate-200'} ${isVariantOut ? 'opacity-50 cursor-not-allowed bg-slate-100' : ''}`}><span className={`text-sm font-bold whitespace-nowrap overflow-hidden text-ellipsis w-full text-center ${isVariantOut ? 'text-slate-500' : 'text-slate-700'}`}>{v.name}</span><div className="flex items-center gap-1 mt-1"><span className={`text-sm font-black whitespace-nowrap ${isVariantOut ? 'text-slate-400' : 'text-[#5B2274]'}`}>${v.price}</span>{isVariantOut && <span className="text-xs font-bold text-red-400 whitespace-nowrap">(售完)</span>}</div></button>);
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+                                    {groupedItemAddons.length > 0 && (
+                                        <div className="space-y-4">
+                                            <p className="text-[11px] font-[900] text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-1">客製化選項</p>
+                                            {groupedItemAddons.map(group => (
+                                                <div key={group.name} className="space-y-2">
+                                                    <p className="text-xs font-black text-slate-500">{group.name}</p>
+                                                    <div className="grid grid-cols-3 gap-2">
+                                                        {group.items.map(ad => {
+                                                            const isSelected = selectedAddons.some(a => a.id === ad.id);
+                                                            return (<button key={ad.id} onClick={() => { if (isSelected) setSelectedAddons(selectedAddons.filter(a => a.id !== ad.id)); else setSelectedAddons([...selectedAddons, ad]); }} className={`px-2 py-3 border rounded-xl text-sm font-bold shadow-sm flex flex-col items-center justify-center gap-1 transition-all ${isSelected ? 'bg-[#5B2274] text-white border-[#5B2274] ring-2 ring-[#5B2274]' : 'bg-white border-slate-200 text-slate-600'}`}><span className="whitespace-nowrap overflow-hidden text-ellipsis w-full text-center">{ad.name}</span> {ad.price > 0 && <span className={`whitespace-nowrap ${isSelected ? 'text-white/80' : 'text-[#5B2274]'}`}>+${ad.price}</span>}</button>);
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {selectedItem.sideGroups?.length > 0 && (
+                                        <div className="space-y-3">
+                                            <p className="text-[11px] font-[900] text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-1">附餐內容</p>
+                                            <div className="space-y-3">
+                                                {selectedItem.sideGroups.map((group, i) => {
+                                                    const targetCat = categories.find(c => c.id === group.categoryId);
+                                                    const defProd = products.find(p => p.id === group.defaultProductId);
+                                                    const choice = selectedSideGroups[group.id];
+                                                    let img = 'https://placehold.co/100x100?text=Side', name = group.title, variant = '', priceDiff = 0, defPrice = defProd ? defProd.price : 0;
+                                                    if (defProd && group.defaultVariantName) { const dv = defProd.variants?.find(v => v.name === group.defaultVariantName); if (dv) defPrice = dv.price; }
+                                                    if (choice) { const p = products.find(p => p.id === choice.id); if (p && p.image) img = getOptimizedImage(p.image, 200); name = choice.name; variant = choice.variantName ? `(${choice.variantName})` : ''; priceDiff = choice.price - defPrice; }
+                                                    else if (defProd) { img = getOptimizedImage(defProd.image, 200); name = defProd.name; if (group.defaultVariantName) variant = `(${group.defaultVariantName})`; }
+                                                    return (
+                                                        <div key={i} className={`flex gap-3 p-3 rounded-2xl border shadow-sm items-center transition-all ${group.allowChange ? 'cursor-pointer active:scale-98 border-purple-100 hover:border-purple-300' : 'border-slate-100 bg-white'}`} onClick={() => { if (group.allowChange && group.categoryId) handleOpenSelection('side', group.id, group.categoryId, defPrice); }}>
+                                                            <div className="w-14 h-14 rounded-xl bg-slate-50 border border-slate-100 overflow-hidden shrink-0 aspect-square"><img src={img} className="w-full h-full object-cover" /></div>
+                                                            <div className="flex-1 min-w-0 space-y-1"><p className="text-sm font-bold text-slate-800 truncate">{name} <span className="text-sm text-slate-500 font-bold">{variant}</span> {priceDiff !== 0 && <span className={`text-sm font-bold ml-1 ${priceDiff > 0 ? 'text-red-500' : 'text-green-500'}`}>{priceDiff > 0 ? `+$${priceDiff}` : `-$${Math.abs(priceDiff)}`}</span>}</p>{group.allowChange ? (<div className="flex items-center justify-between"><div className="flex items-center gap-1.5 text-[#5B2274]"><Icon name="check-circle-2" size={14} className="fill-[#5B2274] text-white" /><span className="text-[11px] font-bold">可更換同類別商品</span></div><button className="text-[10px] bg-purple-50 text-[#5B2274] px-2 py-0.5 rounded border border-purple-100 font-bold">更換</button></div>) : (<div className="flex items-center gap-1.5 text-slate-400"><Icon name="lock" size={14} /><span className="text-[11px] font-bold">固定附餐，不可更換</span></div>)}</div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+                                    {selectedItem.allowSets?.length > 0 && (
+                                        <div className="space-y-3">
+                                            <p className="text-[11px] font-[900] text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-1">升級套餐</p>
+                                            <div className="space-y-3">
+                                                {selectedItem.allowSets.map(setId => {
+                                                    const s = sets.find(set => set.id === setId); if (!s) return null;
+                                                    const isSelected = selectedSet?.id === setId, isExpanded = expandedSetId === setId || isSelected;
+                                                    let setImg = getOptimizedImage(s.image, 200) || 'https://placehold.co/100x100?text=Set';
+                                                    if (!s.image) { const fixedItem = s.contents?.find(c => c.type === 'fixed'); if (fixedItem) { const p = products.find(prod => prod.id === fixedItem.productId); if (p && p.image) setImg = getOptimizedImage(p.image, 200); } }
+                                                    return (
+                                                        <div key={setId} onClick={() => { if(isSelected) { setSelectedSet(null); setExpandedSetId(null); } else { setSelectedSet(s); setExpandedSetId(setId); } }} className={`rounded-2xl border shadow-sm overflow-hidden transition-all cursor-pointer ${isSelected ? 'border-[#5B2274] ring-2 ring-[#5B2274]' : 'border-slate-100 bg-white'}`}>
+                                                            <div className={`flex gap-3 p-3 items-center ${isSelected ? 'bg-purple-50' : 'bg-white'}`}><div className="w-16 h-16 rounded-xl bg-slate-100 border border-slate-100 overflow-hidden shrink-0 aspect-square"><img src={setImg} className="w-full h-full object-cover" /></div><div className="flex-1 min-w-0"><div className="flex justify-between items-center"><p className="text-sm font-bold text-slate-800 truncate">{s.name}</p><span className="text-sm font-black text-[#5B2274]">+${s.price}</span></div><div className="flex justify-between items-center mt-1"><span className="text-[10px] text-slate-400 font-bold">查看內容</span><div className={`w-5 h-5 rounded-full border flex items-center justify-center ${isSelected ? 'bg-[#5B2274] border-[#5B2274]' : 'border-slate-300'}`}>{isSelected && <Icon name="check" size={12} className="text-white" />}</div></div></div></div>
+                                                            {isExpanded && (
+                                                                <div className="p-3 pt-0 border-t border-slate-100 animate-fade-in" onClick={e => e.stopPropagation()}>
+                                                                    <div className="space-y-3 mt-2">{s.contents?.map((content, idx) => {
+                                                                        let contentImg = 'https://placehold.co/100x100?text=Item', contentName = content.label, contentSub = "", isChangeable = content.allowChange !== false, targetCatName = '', priceDiff = 0, defPrice = 0;
+                                                                        if (content.type === 'category' && content.defaultProductId) { const defProd = products.find(p => p.id === content.defaultProductId); defPrice = defProd ? defProd.price : 0; if (defProd && content.defaultVariantName) { const dv = defProd.variants?.find(v => v.name === content.defaultVariantName); if (dv) defPrice = dv.price; } }
+                                                                        const choice = selectedSetChoices[idx];
+                                                                        if (choice && isSelected) { const p = products.find(p => p.id === choice.id); if (p && p.image) contentImg = getOptimizedImage(p.image, 200); contentName = choice.name; contentSub = choice.variantName ? `(${choice.variantName})` : ''; priceDiff = choice.price - defPrice; }
+                                                                        else { if (content.type === 'fixed') { const p = products.find(prod => prod.id === content.productId); if (p) { contentImg = getOptimizedImage(p.image, 200); contentName = p.name; if (content.variantName) contentSub = content.variantName; } isChangeable = false; } else if (content.type === 'category') { const cat = categories.find(c => c.id === content.categoryId), defP = products.find(p => p.id === content.defaultProductId); if (defP) { contentImg = getOptimizedImage(defP.image, 200); contentName = content.label; contentSub = defP.name; if (content.defaultVariantName) contentSub += ` (${content.defaultVariantName})`; } if (cat) targetCatName = cat.name; } }
+                                                                        return (<div key={idx} className={`flex gap-3 p-3 rounded-2xl border shadow-sm items-center transition-all ${content.type === 'category' && content.allowChange ? 'cursor-pointer active:scale-98 border-purple-100 hover:border-purple-300' : 'bg-white border-slate-200'}`} onClick={() => { if (content.type === 'category' && content.allowChange && isSelected) handleOpenSelection('set', idx, content.categoryId, defPrice); }}><div className="w-14 h-14 rounded-xl bg-slate-50 border border-slate-100 overflow-hidden shrink-0 aspect-square"><img src={contentImg} className="w-full h-full object-cover" /></div><div className="flex-1 min-w-0 space-y-1"><p className="text-sm font-bold text-slate-800 truncate">{contentName} <span className="text-sm text-slate-500 font-bold">{contentSub}</span> {priceDiff !== 0 && <span className={`text-sm font-bold ml-1 ${priceDiff > 0 ? 'text-red-500' : 'text-green-500'}`}>{priceDiff > 0 ? `+$${priceDiff}` : `-$${Math.abs(priceDiff)}`}</span>}</p>{content.type === 'category' && isChangeable ? (<div className="flex items-center justify-between"><div className="flex items-center gap-1.5 text-[#5B2274]"><Icon name="check-circle-2" size={14} className="fill-[#5B2274] text-white" /><span className="text-[11px] font-bold">可更換同類別商品</span></div>{isSelected && <button className="text-[10px] bg-purple-50 text-[#5B2274] px-2 py-0.5 rounded border border-purple-100 font-bold">更換</button>}</div>) : !isChangeable && (<div className="flex items-center gap-1.5 text-slate-400"><Icon name="lock" size={14} /><span className="text-[11px] font-bold">固定品項，不可更換</span></div>)}</div></div>);
+                                                                    })}</div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+                                    {checkAvailability(selectedItem) !== 'all_out' && (
+                                        <div className="space-y-2"><label className="text-[11px] font-[900] text-slate-400 uppercase tracking-widest">餐點備註</label><textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-[#5B2274] resize-none h-24" placeholder="例如：去冰、不要洋蔥..." value={itemNote} onChange={e => setItemNote(e.target.value)}></textarea></div>
+                                    )}
+                                </div>
+                                {checkAvailability(selectedItem) !== 'all_out' && (
+                                    <div className="absolute bottom-0 left-0 right-0 p-4 bg-white border-t border-slate-100 flex items-center gap-4 z-20">
+                                        <div className="flex items-center gap-3 bg-slate-100 rounded-xl px-3 py-2"><button onClick={() => setItemCount(Math.max(1, itemCount-1))} className="w-8 h-8 flex items-center justify-center bg-white rounded-lg shadow-sm active:scale-95 text-slate-600"><Icon name="minus" size={16} /></button><span className="font-black text-lg w-6 text-center">{itemCount}</span><button onClick={() => setItemCount(itemCount+1)} className="w-8 h-8 flex items-center justify-center bg-[#5B2274] text-white rounded-lg shadow-sm active:scale-95"><Icon name="plus" size={16} /></button></div>
+                                        <button onClick={handleAddToCart} disabled={selectedItem.variants?.length > 0 && !selectedVariant} className={`flex-1 py-3.5 rounded-xl font-black text-white shadow-lg flex justify-between px-6 items-center transition-all ${selectedItem.variants?.length > 0 && !selectedVariant ? 'bg-slate-300 cursor-not-allowed' : 'bg-[#5B2274] hover:bg-[#4a1b5e] active:scale-95'}`}><span>{editingCartItem ? '更新購物車' : '加入購物車'}</span><span>${((selectedVariant ? selectedVariant.price : selectedItem.price) + selectedAddons.reduce((s,a)=>s+a.price,0) + (selectedSet ? (selectedSet.price + (function(){let d=0; selectedSet.contents?.forEach((c,i)=>{const ch=selectedSetChoices[i]; if(ch && c.type==='category' && c.allowChange && c.defaultProductId){const dp=products.find(p=>p.id===c.defaultProductId); let dpr=dp?dp.price:0; if(dp && c.defaultVariantName){const dv=dp.variants?.find(v=>v.name===c.defaultVariantName); if(dv)dpr=dv.price;} d+=(ch.price-dpr);}}); return d;})()) : 0) + (function(){let d=0; selectedItem.sideGroups?.forEach(g=>{const ch=selectedSideGroups[g.id]; if(ch && g.allowChange && g.defaultProductId){const dp=products.find(p=>p.id===g.defaultProductId); let dpr=dp?dp.price:0; if(dp && g.defaultVariantName){const dv=dp.variants?.find(v=>v.name===g.defaultVariantName); if(dv)dpr=dv.price;} d+=(ch.price-dpr);}}); return d;})()) * itemCount}</span></button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* Selection Modal */}
+                    {selectionModal && (
+                        <div className="fixed inset-0 bg-black/80 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in backdrop-blur-sm" onClick={() => { if(!configuringProduct) setSelectionModal(null); }}>
+                             <div className="bg-white w-full max-w-md rounded-t-[32px] sm:rounded-[32px] p-6 shadow-2xl animate-slide-up max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                                <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-4"><h3 className="text-lg font-[900] text-slate-800">{configuringProduct ? '商品內容' : '請選擇商品'}</h3><button onClick={() => { if(configuringProduct) setConfiguringProduct(null); else setSelectionModal(null); }} className="bg-slate-100 p-2 rounded-full text-slate-500"><Icon name={configuringProduct ? 'arrow-left' : 'x'} size={20} /></button></div>
+                                <div className="flex-1 overflow-y-auto no-scrollbar space-y-3">
+                                    {!configuringProduct ? (
+                                        products.filter(p => p.categoryId === selectionModal.categoryId && !p.isHidden).map(p => {
+                                            if (checkAvailability(p) === 'all_out') return null;
+                                            let diffP = ''; const baseD = p.price - selectionModal.defaultPrice, hasV = p.variants && p.variants.length > 0;
+                                            if (hasV) { const minP = Math.min(...p.variants.map(v => v.price)), minD = minP - selectionModal.defaultPrice; diffP = minD === 0 ? '不需補差價' : (minD > 0 ? `+$${minD}起` : `-$${Math.abs(minD)}起`); }
+                                            else { diffP = baseD === 0 ? '不需補差價' : (baseD > 0 ? `+$${baseD}` : `-$${Math.abs(baseD)}`); }
+                                            return (<div key={p.id} className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl active:bg-slate-50 cursor-pointer" onClick={() => handleProductSelectInModal(p)}><div className="flex items-center gap-3"><div className="w-12 h-12 rounded-lg bg-slate-100 overflow-hidden shrink-0"><img src={getOptimizedImage(p.image, 100)} className="w-full h-full object-cover" /></div><div><p className="font-bold text-slate-800">{p.name}</p><p className={`text-xs font-bold ${diffP.includes('+') ? 'text-red-500' : (diffP.includes('-') ? 'text-green-500' : 'text-slate-500')}`}>{diffP}</p></div></div><Icon name="chevron-right" size={16} className="text-slate-300" /></div>);
+                                        })
+                                    ) : (
+                                        <div className="space-y-6">
+                                            {configuringProduct.product.variants?.length > 0 && (<div className="space-y-2"><p className="text-xs font-black text-slate-400">規格</p><div className="grid grid-cols-2 gap-2">{configuringProduct.product.variants.map((v, i) => { const isS = configuringProduct.variant?.name === v.name, d = v.price - selectionModal.defaultPrice; return <button key={i} onClick={() => setConfiguringProduct({...configuringProduct, variant: isS ? null : v})} className={`p-3 rounded-xl border text-sm font-bold flex justify-between ${isS ? 'border-[#5B2274] bg-purple-50' : 'border-slate-200'}`}><span>{v.name}</span><span className="text-xs flex items-center gap-1"><s className="text-slate-400">${v.price}</s> <span className={d > 0 ? 'text-red-500' : (d < 0 ? 'text-green-500' : 'text-slate-500')}>{d === 0 ? '不需補差價' : (d > 0 ? `+$${d}` : `-$${Math.abs(d)}`)}</span></span></button>; })}</div></div>)}
+                                            {configuringProduct.product.allowAddons?.length > 0 && (<div className="space-y-4"><p className="text-[11px] font-[900] text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-1">客製化選項</p>{getGroupedAddons(addons.filter(a => configuringProduct.product.allowAddons.includes(a.id))).map(g => (<div key={g.name} className="space-y-2"><p className="text-xs font-black text-slate-500">{g.name}</p><div className="grid grid-cols-2 gap-2">{g.items.map(ad => { const isS = configuringProduct.addons.some(a => a.id === ad.id); return <button key={ad.id} onClick={() => { const newA = isS ? configuringProduct.addons.filter(a => a.id !== ad.id) : [...configuringProduct.addons, ad]; setConfiguringProduct({...configuringProduct, addons: newA}); }} className={`p-3 rounded-xl text-sm font-bold flex justify-between ${isS ? 'bg-[#5B2274] text-white' : 'text-slate-500 border border-slate-200'}`}><span>{ad.name}</span> {ad.price>0 && <span className={isS ? 'text-white' : 'text-[#5B2274]'}>+${ad.price}</span>}</button>; })}</div></div>))}</div>)}
+                                            <div className="border-t border-slate-100 pt-4 mt-2"><div className="flex justify-between items-center mb-4"><span className="font-bold text-slate-500">補差價金額</span><span className="font-black text-xl text-[#5B2274]">{(() => { if (configuringProduct.product.variants?.length > 0 && !configuringProduct.variant) return '請選擇規格'; const curr = (configuringProduct.variant ? configuringProduct.variant.price : configuringProduct.product.price) + configuringProduct.addons.reduce((s, a) => s + a.price, 0), diff = curr - selectionModal.defaultPrice; return diff === 0 ? '不需補差價' : (diff > 0 ? `+$${diff}` : `-$${Math.abs(diff)}`); })()}</span></div><button onClick={confirmConfiguration} className="w-full bg-[#5B2274] text-white py-3 rounded-xl font-bold shadow-lg">確認商品</button></div>
+                                        </div>
+                                    )}
+                                </div>
+                             </div>
+                        </div>
+                    )}
+
+                    {showCartModal && (
+                        <div className="fixed inset-0 bg-black/80 z-[60] flex items-end justify-center animate-fade-in backdrop-blur-sm" onClick={() => setShowCartModal(false)}>
+                            <div className="bg-white w-full max-w-md rounded-t-[32px] p-6 shadow-2xl animate-slide-up max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                                <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4"><h3 className="text-xl font-[900] text-slate-800">結帳確認</h3><button onClick={() => setShowCartModal(false)} className="bg-slate-100 p-2 rounded-full text-slate-500"><Icon name="x" size={20} /></button></div>
+                                <div className="flex-1 overflow-y-auto no-scrollbar space-y-6 pb-4 px-1">
+                                    <div className="space-y-4">
+                                        <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest">訂單內容</h4>
+                                        {cart.length === 0 ? <div className="text-center py-6 text-slate-400 font-bold">購物車是空的</div> : cart.map(item => (
+                                            <div key={item.id} className="flex gap-3 items-start border-b border-slate-50 pb-4 last:border-0 relative group">
+                                                <button onClick={() => openEditCartItem(item)} className="absolute top-0 right-0 p-2 text-slate-300 hover:text-[#5B2274] z-10"><Icon name="pencil" size={16} /></button>
+                                                <div className="w-16 h-16 rounded-xl bg-slate-50 border border-slate-100 shrink-0 overflow-hidden"><img src={getOptimizedImage(item.image, 200)} className="w-full h-full object-cover" /></div>
+                                                <div className="flex-1 min-w-0 pr-8"><h4 className="font-black text-slate-800 text-sm truncate">{item.name}</h4><p className="text-xs text-slate-500 font-bold">{item.variantName}</p>{item.addons.length > 0 && <p className="text-xs text-slate-400 mt-1">{item.addons.map(a => a.name).join(' / ')}</p>}
+                                                {item.sideGroups && Object.keys(item.sideGroups).length > 0 && (<div className="text-xs text-slate-600 bg-purple-50 p-2 rounded-lg mt-1 space-y-1"><p className="font-bold text-[#5B2274] mb-1">附餐：</p>{Object.values(item.sideGroups).map(c => (<div key={c.id}><span className="font-bold text-slate-700 mr-2">• {c.name} {c.variantName && `(${c.variantName})`}</span>{c.addons?.length > 0 && <span className="text-slate-400 block pl-2">{c.addons.map(a => a.name).join(' / ')}</span>}</div>))}</div>)}
+                                                {item.set && (<div className="text-xs text-slate-600 bg-purple-50 p-2 rounded-lg mt-1 space-y-1"><p className="font-bold text-[#5B2274] mb-1">套餐：{item.set.name}</p>{item.set.contents?.map((c, i) => { const ch = item.setChoices?.[i]; let dn = 'Unknown', dv = ''; if (ch) { dn = ch.name; dv = ch.variantName; } else if (c.type === 'fixed') { const p = products.find(prod=>prod.id === c.productId); if(p) dn = p.name; } else if (c.type === 'category') { const p = products.find(prod=>prod.id === c.defaultProductId); if(p) dn = p.name; } return (<div key={i} className="flex flex-col"><span className="font-bold text-slate-700">• {dn} {dv && `(${dv})`}</span>{ch?.addons?.length > 0 && <span className="text-slate-400 pl-3">{ch.addons.map(a => a.name).join(' / ')}</span>}</div>); })}</div>)}
+                                                {item.note && <p className="text-xs text-orange-500 bg-orange-50 px-1 rounded inline-block mt-1">備註：{item.note}</p>}<div className="flex items-center justify-between mt-2"><div className="flex items-center gap-2 bg-slate-50 rounded-lg px-2 py-1"><button onClick={() => item.qty > 1 ? updateCartQty(item.id, -1) : removeFromCart(item.id)} className="w-6 h-6 flex items-center justify-center bg-white rounded shadow-sm text-slate-600"><Icon name={item.qty > 1 ? "minus" : "trash-2"} size={12} /></button><span className="font-bold text-sm w-4 text-center">{item.qty}</span><button onClick={() => updateCartQty(item.id, 1)} className="w-6 h-6 flex items-center justify-center bg-white rounded shadow-sm text-slate-600"><Icon name="plus" size={12} /></button></div><span className="font-bold text-slate-700 text-sm">${item.totalPrice}</span></div></div>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {/* Pickup Time Section */}
+                                    <div className="space-y-4 pt-2 border-t border-slate-100">
+                                        <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest">取餐時間</h4>
+                                        <div className="grid grid-cols-1 gap-3">
+                                            <select className="bg-slate-50 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-[#5B2274] w-full" value={pickupDate} onChange={e => { setPickupDate(e.target.value); setIsASAP(false); }}>
+                                                {getAvailableDates().length === 0 && <option disabled>無可選日期 (請來電)</option>}
+                                                {getAvailableDates().map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+                                            </select>
+                                            
+                                            {/* ASAP Toggle - Only show if selected date is today and currently open */}
+                                            {pickupDate === new Date().toISOString().split('T')[0] && checkIsOpenNow() && (
+                                                <label className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${isASAP ? 'bg-purple-50 border-[#5B2274]' : 'bg-white border-slate-200'}`}>
+                                                    <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${isASAP ? 'border-[#5B2274] bg-[#5B2274]' : 'border-slate-300'}`}>
+                                                        {isASAP && <Icon name="check" size={14} className="text-white" />}
+                                                    </div>
+                                                    <input type="checkbox" className="hidden" checked={isASAP} onChange={e => setIsASAP(e.target.checked)} />
+                                                    <span className={`text-sm font-bold ${isASAP ? 'text-[#5B2274]' : 'text-slate-600'}`}>盡快取餐</span>
+                                                </label>
+                                            )}
+
+                                            {/* Split Hour and Minute Selectors - Hide if ASAP is checked */}
+                                            {!isASAP && (
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <select className="bg-slate-50 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-[#5B2274]" value={pickupHour} onChange={e => setPickupHour(e.target.value)}>
+                                                        <option value="" disabled>選擇小時</option>
+                                                        {getAvailableHours(pickupDate).map(h => <option key={h} value={h}>{h} 時</option>)}
+                                                    </select>
+                                                    <select className="bg-slate-50 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-[#5B2274]" value={pickupMinute} onChange={e => setPickupMinute(e.target.value)} disabled={!pickupHour}>
+                                                        <option value="" disabled>選擇分鐘</option>
+                                                        {getAvailableMinutes(pickupDate, pickupHour).map(m => <option key={m} value={m}>{m.toString().padStart(2,'0')} 分</option>)}
+                                                    </select>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <p className="text-xs text-slate-400 font-bold text-center">如有其他時段需求，請直接來電</p>
+                                    </div>
+
+                                    <div className="border-t border-slate-100 border-dashed my-4"></div>
+
+                                    <div className="space-y-4 pt-2">
+                                        <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest">訂購人資訊</h4>
+                                        <div className="grid grid-cols-2 gap-3"><input type="text" placeholder="您的姓名" className="bg-slate-50 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-[#5B2274]" value={userInfo.name} onChange={e => setUserInfo({...userInfo, name: e.target.value})} /><input type="tel" placeholder="聯絡電話" className="bg-slate-50 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-[#5B2274]" value={userInfo.phone} onChange={e => setUserInfo({...userInfo, phone: e.target.value})} /></div>
+                                        <div className="space-y-2"><p className="text-xs font-bold text-slate-500">優先聯絡方式</p><div className="flex bg-slate-50 rounded-xl p-1 w-full"><button onClick={() => setUserInfo({...userInfo, contactMethod: 'line'})} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${userInfo.contactMethod === 'line' ? 'bg-[#5B2274] text-white shadow-sm' : 'text-slate-400'}`}>LINE</button><button onClick={() => setUserInfo({...userInfo, contactMethod: 'phone'})} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${userInfo.contactMethod === 'phone' ? 'bg-[#5B2274] text-white shadow-sm' : 'text-slate-400'}`}>電話</button></div></div><label className="flex items-center justify-between cursor-pointer bg-slate-50 p-3 rounded-xl border border-slate-100"><span className="text-xs font-bold text-slate-500">記住我的資訊 (下次自動帶入)</span><div className="switch"><input type="checkbox" checked={userInfo.remember} onChange={e => setUserInfo({...userInfo, remember: e.target.checked})} /><span className="slider"></span></div></label>
+                                    </div>
+                                    <div className="border-t border-slate-100 border-dashed my-4"></div>
+                                    <div className="space-y-3 pt-2"><h4 className="text-sm font-black text-slate-400 uppercase tracking-widest">優惠折扣</h4><div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">{myCoupons.map((c, i) => (<button key={i} onClick={() => setSelectedCoupon(selectedCoupon === c ? null : c)} className={`flex-shrink-0 px-3 py-2 rounded-xl border text-xs font-bold transition-all ${selectedCoupon === c ? 'bg-purple-100 border-[#5B2274] text-[#5B2274]' : 'bg-white border-slate-200 text-slate-600'}`}>{c.title} (-${c.discount})</button>))}{myCoupons.length === 0 && <span className="text-xs text-slate-400 py-2">無可用優惠券，請至菜單分頁領取</span>}</div><div className="flex items-start gap-3 p-3 bg-red-50 border border-red-100 rounded-xl cursor-pointer" onClick={() => setUseLoyaltyCard(!useLoyaltyCard)}><div className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 mt-0.5 ${useLoyaltyCard ? 'bg-red-500 border-red-500' : 'bg-white border-red-200'}`}>{useLoyaltyCard && <Icon name="check" size={14} className="text-white" />}</div><div><p className="text-sm font-bold text-red-800">使用集點卡折抵 $50</p><p className="text-[10px] text-red-500 mt-1 font-bold">※ 若現場核銷不符資格將收取原價</p></div></div></div>
+                                </div>
+                                <div className="mt-2 pt-4 border-t border-slate-100"><div className="flex justify-between items-center mb-4"><span className="font-bold text-slate-500">總計金額</span><div className="text-right">{(useLoyaltyCard || (selectedCoupon && cartTotal >= selectedCoupon.minSpend)) && <span className="text-xs text-slate-400 line-through mr-2">${cartTotal}</span>}<span className="font-black text-2xl text-[#5B2274]">${finalTotal}</span></div></div><button onClick={handlePreSubmit} className="w-full bg-[#5B2274] text-white py-4 rounded-2xl font-black text-lg shadow-xl hover:bg-[#4a1b5e] active:scale-95 transition-all">送出訂單</button></div>
+                            </div>
+                        </div>
+                    )}
+
+                    {showSubmitConfirm && (
+                        <div className="fixed inset-0 bg-black/60 z-[80] flex items-center justify-center p-6 backdrop-blur-sm animate-fade-in" onClick={() => setShowSubmitConfirm(false)}>
+                            <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl animate-slide-up flex flex-col items-center text-center space-y-4" onClick={e => e.stopPropagation()}>
+                                <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mb-2"><Icon name="alert-triangle" size={32} /></div>
+                                <h3 className="text-xl font-[900] text-slate-800">訂單確認</h3>
+                                <div className="space-y-2 text-sm font-bold text-slate-600">
+                                    <p>訂單送出無法線上變更</p>
+                                    <p className="text-red-500">{pickupDate === new Date().toISOString().split('T')[0] ? "當日訂單無法透過線上取消" : "隔日訂單過凌晨後無法透過線上取消"}</p>
+                                    <p>如有變更、取消需求請於營業時間內來電</p>
+                                </div>
+                                <div className="flex gap-3 w-full pt-2"><button onClick={() => setShowSubmitConfirm(false)} className="flex-1 py-3 rounded-xl font-bold bg-slate-100 text-slate-600 active:scale-95 transition-transform">取消</button><button onClick={confirmSubmitOrder} className="flex-1 py-3 rounded-xl font-bold bg-[#5B2274] text-white shadow-lg active:scale-95 transition-transform">確認送出</button></div>
+                            </div>
+                        </div>
+                    )}
+
+                    {showInfoModal && (
+                        <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-6 backdrop-blur-sm animate-fade-in" onClick={() => setShowInfoModal(false)}>
+                            <div className="bg-white w-full max-w-xs rounded-3xl p-6 shadow-2xl animate-slide-up relative" onClick={e => e.stopPropagation()}>
+                                <button onClick={() => setShowInfoModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><Icon name="x" size={24} /></button>
+                                <div className="text-center mb-6"><div className="w-12 h-12 bg-purple-100 text-[#5B2274] rounded-full flex items-center justify-center mx-auto mb-3"><Icon name="clock" size={24} /></div><h3 className="text-xl font-[900] text-slate-800">營業時間資訊</h3></div>
+                                <div className="space-y-4">
+                                    <div className="bg-slate-50 p-4 rounded-2xl flex justify-between items-center"><span className="text-sm font-bold text-slate-500">平日營業</span><span className="text-lg font-black text-slate-800">{settings.openTime} - {settings.closeTime}</span></div>
+                                    <div className="bg-slate-50 p-4 rounded-2xl flex justify-between items-center"><span className="text-sm font-bold text-slate-500">每週公休</span><span className="text-lg font-black text-slate-800">{settings.closedDays.length > 0 ? `每週${settings.closedDays.sort().map(d => dayNames[d].replace('週','')).join('、')}公休` : '無'}</span></div>
+                                    {settings.specialDates?.length > 0 && (
+                                        <div className="space-y-2 pt-2 border-t border-slate-100">
+                                            <p className="text-xs font-black text-slate-400 uppercase tracking-wider text-center">特殊排休/營業</p>
+                                            <div className="max-h-32 overflow-y-auto no-scrollbar space-y-1.5">
+                                                {settings.specialDates.map((sd, i) => (
+                                                    <div key={i} className="flex flex-col border-b border-slate-100 last:border-0 pb-1">
+                                                        <div className="flex justify-between text-xs font-bold px-2"><span className="text-slate-600">{sd.date}</span><span className={sd.type === 'open' ? 'text-emerald-500' : 'text-red-500'}>{sd.type === 'open' ? '加開營業' : '特殊店休'}</span></div>
+                                                        {sd.note && <span className="text-[10px] text-slate-400 px-2">{sd.note}</span>}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
