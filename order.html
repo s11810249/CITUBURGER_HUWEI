@@ -71,6 +71,28 @@
         .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
         input:checked + .slider { background-color: #5B2274; }
         input:checked + .slider:before { transform: translateX(20px); }
+        
+        :root {
+            --brand-color: #5B2274;
+            --brand-light: #F5EEF8;
+        }
+
+        /* Icon 呼吸燈動畫 */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); box-shadow: 0 0 0 0 rgba(91, 34, 116, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(91, 34, 116, 0); }
+            100% { transform: scale(0.8); box-shadow: 0 0 0 0 rgba(91, 34, 116, 0); }
+        }
+        
+        .status-icon-anim {
+            animation: pulse-ring 2s infinite;
+        }
+
+        /* 進度條平滑過渡 */
+        .progress-bar-fill {
+            transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s;
+        }
+
     </style>
 </head>
 <body class="select-none">
@@ -109,7 +131,7 @@
         window.collection = collection;
         window.addDoc = addDoc;
         window.setDoc = setDoc;
-	    window.updateDoc = updateDoc;
+        window.updateDoc = updateDoc;
         window.query = query;
         window.where = where;
         window.orderBy = orderBy;
@@ -257,56 +279,213 @@
             );
         };
 
-        const OrderHistoryItem = ({ order, onReorder, onCancel }) => {
-            const [expanded, setExpanded] = useState(false);
+        const OrderHistoryItem = ({ order, onOpenDetail }) => {
             const todayStr = new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei", year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
-            const isFutureOrder = order.userInfo.pickupDate > todayStr;
-            const isPending = order.status === 'pending';
+            const isFuture = order.userInfo.pickupDate > todayStr;
+            
+            // 狀態文字對應邏輯
+            const getStatusLabel = () => {
+                if (order.status === 'cancelled') return '訂單已取消';
+                if (order.status === 'completed') return '訂單已完成';
+                if (order.status === 'ready') return '餐點已完成';
+                if (order.status === 'confirmed') return '餐點製作中';
+                if (order.status === 'pending') return isFuture ? '預約訂單已成立' : '訂單待店家確認';
+                return '處理中';
+            };
+
+            const formatTime = (iso) => {
+                if(!iso) return "";
+                const d = new Date(iso);
+                return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+            };
+
+            const pickupTimeDisplay = `${order.userInfo.pickupDate.replace(/-/g, '/')} ${order.userInfo.pickupTime === 'ASAP' ? '盡快取餐' : order.userInfo.pickupTime}`;
 
             return (
-                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-                    <div onClick={() => setExpanded(!expanded)} className="flex justify-between items-center cursor-pointer">
-                        <div className="flex flex-col">
-                            <span className="text-xs font-bold text-slate-400">{new Date(order.createdAt).toLocaleDateString()} {new Date(order.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                            <span className="text-sm font-black text-slate-800 mt-1">${order.totalPrice}</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                            <span className={`text-xs font-bold px-2 py-1 rounded ${order.status === 'pending' ? 'bg-slate-100 text-slate-500' : order.status === 'cancelled' ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-500'}`}>
-                                {order.status === 'pending' ? '等待接單' : (order.status === 'cancelled' ? '已取消' : (order.status === 'confirmed' ? '製作中' : '已完成'))}
+                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between mb-3">
+                    <div className="flex-1 space-y-1">
+                        <div className="flex items-center gap-2">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                ['cancelled'].includes(order.status) ? 'bg-red-50 text-red-500' : 
+                                ['completed'].includes(order.status) ? 'bg-slate-100 text-slate-500' : 'bg-purple-50 text-[#5B2274]'
+                            }`}>
+                                {getStatusLabel()}
                             </span>
-                            <Icon name={expanded ? "chevron-up" : "chevron-down"} size={16} className="text-slate-300" />
                         </div>
+                        <p className="text-[11px] font-bold text-slate-400">訂購：{formatTime(order.createdAt)}</p>
+                        <p className="text-[11px] font-bold text-slate-400">取餐：{pickupTimeDisplay}</p>
+                        <p className="text-sm font-black text-slate-800">金額：${order.totalPrice}</p>
                     </div>
-                    {expanded && (
-                        <div className="mt-4 pt-4 border-t border-slate-50 animate-fade-in">
-                            <div className="space-y-4 mb-4">
-                                {order.items.map((item, i) => (
-                                    <div key={i} className="flex flex-col gap-1 text-sm border-b border-dashed border-slate-100 pb-3 last:border-0">
-                                        <div className="flex justify-between font-bold text-slate-700">
-                                            <span className="truncate flex-1 pr-2">{item.qty}x {item.name}</span>
-                                            <span>${item.totalPrice}</span>
-                                        </div>
-                                        <div className="pl-4 space-y-0.5 text-xs">
-                                            {item.variantName && <p className="text-slate-500">規格: {item.variantName}</p>}
-                                            {item.addons && item.addons.length > 0 && <p className="text-slate-500">加選: {item.addons.map(a => a.name).join(' / ')}</p>}
-                                            {item.sideGroups && Object.values(item.sideGroups).map((side, idx) => (<p key={`side-${idx}`} className="text-slate-500">附餐: {side.name} {side.variantName ? `(${side.variantName})` : ''}</p>))}
-                                            {item.set && (<div className="text-slate-500"><p>套餐: {item.set.name}</p>{item.set.contents?.map((c, cIdx) => { const choice = item.setChoices?.[cIdx]; if (choice) { return <p key={`set-${cIdx}`} className="pl-2">- {choice.name} {choice.variantName ? `(${choice.variantName})` : ''}</p>; } return null; })}</div>)}
-                                            {item.note && <p className="text-orange-500">備註: {item.note}</p>}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                            {(order.discountAmount > 0) && (<div className="flex justify-between items-center text-xs font-bold text-slate-500 bg-slate-50 p-2 rounded-lg mb-4"><span>{order.discountApplied === 'loyalty' ? '集點卡折抵' : `優惠券 (${order.discountApplied})`}</span><span className="text-red-500">-${order.discountAmount}</span></div>)}
-                            <div className="flex justify-between items-center gap-3">
-                                {isFutureOrder && isPending && (<button onClick={(e) => { e.stopPropagation(); onCancel(order); }} className="flex-1 px-4 py-2 bg-red-50 text-red-500 text-xs font-bold rounded-xl active:scale-95 transition-transform border border-red-100 hover:bg-red-100">取消訂單</button>)}
-                                <button onClick={(e) => { e.stopPropagation(); onReorder(order); }} className="flex-1 px-4 py-2 bg-[#5B2274] text-white text-xs font-bold rounded-xl active:scale-95 transition-transform hover:bg-[#4a1b5e]">再點一次</button>
-                            </div>
-                        </div>
-                    )}
+                    <button 
+                        onClick={() => onOpenDetail(order)}
+                        className="ml-4 px-4 py-2 bg-slate-50 text-[#5B2274] border border-purple-100 rounded-xl font-bold text-xs active:scale-95 transition-transform"
+                    >
+                        查看詳情
+                    </button>
                 </div>
             );
         };
+        
+        const OrderDetailModal = ({ order, onClose, onReorder, onCancel }) => {
+            // 關鍵修正：若無選取訂單，絕對不渲染，避免首頁跳出
+            if (!order) return null;
 
+            const todayStr = new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei", year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
+            const isFuture = order.userInfo.pickupDate > todayStr;
+
+            // 狀態視覺配置
+            const getStatusConfig = () => {
+                switch (order.status) {
+                    case 'cancelled':
+                        return { title: '訂單已取消', desc: '很抱歉，此訂單已被取消。如有疑問請致電店家。', icon: 'CircleX', color: 'text-red-500', bg: 'bg-red-50', bar: 'bg-gray-300', width: '100%', anim: false };
+                    case 'completed':
+                        return { title: '訂單已完成', desc: '感謝您的訂購，期待再次為您服務！', icon: 'CheckCircle', color: 'text-blue-600', bg: 'bg-blue-50', bar: 'bg-blue-600', width: '100%', anim: false };
+                    case 'ready':
+                        return { title: '餐點已完成', desc: '您的餐點已準備好，請前往櫃檯取餐。', icon: 'ShoppingBag', color: 'text-green-600', bg: 'bg-green-50', bar: 'bg-green-500', width: '100%', anim: true };
+                    case 'confirmed':
+                        return { title: '餐點製作中', desc: '廚房正在精心製作您的餐點，請稍候。', icon: 'Flame', color: 'text-orange-500', bg: 'bg-orange-50', bar: 'bg-orange-500', width: '60%', anim: true };
+                    case 'pending':
+                    default:
+                        return isFuture 
+                            ? { title: '預約訂單已成立', desc: '店家已收到預約，將於指定時間開始製作。', icon: 'Clock', color: 'text-teal-600', bg: 'bg-teal-50', bar: 'bg-teal-500', width: '10%', anim: false }
+                            : { title: '訂單待店家確認', desc: '店家正在確認您的訂單內容，請稍候。', icon: 'ClipboardList', color: 'text-[#5B2274]', bg: 'bg-purple-50', bar: 'bg-[#5B2274]', width: '20%', anim: false };
+                }
+            };
+
+            const config = getStatusConfig();
+            const formatTime = (iso) => {
+                if(!iso) return "-";
+                const d = new Date(iso);
+                return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+            };
+
+            return (
+                /* 關鍵修正：fixed inset-0 且 bg-[#F3F4F6]，移除所有外邊距與圓角遮罩，達成滿版頁面 */
+                <div className="fixed inset-0 bg-[#F3F4F6] z-[100] flex flex-col animate-fade-in overflow-hidden">
+                    
+                    {/* 滿版頂部導航欄 */}
+                    <nav className="bg-white shadow-sm shrink-0">
+                        <div className="max-w-md mx-auto px-4 py-4 flex items-center justify-between">
+                            <button onClick={onClose} className="text-gray-600 active:scale-90 transition-transform">
+                                <Icon name="ArrowLeft" size={24} />
+                            </button>
+                            <h1 className="text-lg font-black text-gray-800">訂單進度</h1>
+                            <div className="w-6"></div>
+                        </div>
+                    </nav>
+
+                    <div className="flex-1 overflow-y-auto no-scrollbar pb-24">
+                        <div className="max-w-md mx-auto">
+                            
+                            {/* [區塊 1] 狀態展示區 (滿版美化版) */}
+                            <div className="bg-white p-8 mb-2 rounded-b-[40px] shadow-sm relative overflow-hidden text-center">
+                                <div className="absolute -top-10 -right-10 w-32 h-32 bg-purple-50 rounded-full opacity-50"></div>
+                                
+                                <div className={`w-20 h-20 mx-auto ${config.bg} rounded-full flex items-center justify-center mb-4 transition-all duration-500 ${config.anim ? 'status-icon-anim' : ''}`}>
+                                    <Icon name={config.icon} size={36} className={config.color} />
+                                </div>
+                                <h2 className={`text-2xl font-black mb-1 ${order.status === 'cancelled' ? 'text-red-600' : 'text-gray-800'}`}>{config.title}</h2>
+                                <p className="text-gray-500 text-sm mb-8 font-medium px-6">{config.desc}</p>
+
+                                <div className="px-4">
+                                    <div className="w-full bg-gray-100 rounded-full h-2.5 mb-2 overflow-hidden">
+                                        <div className={`${config.bar} h-full rounded-full progress-bar-fill`} style={{ width: config.width }}></div>
+                                    </div>
+                                    <div className="flex justify-between text-[10px] text-gray-400 font-bold px-1 uppercase tracking-widest">
+                                        <span>已受理</span>
+                                        <span>準備中</span>
+                                        <span>可取餐</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* [區塊 2] 店家資訊卡 */}
+                            <div className="mx-4 mt-4 bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex justify-between items-center">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-[#5B2274]"><Icon name="Store" size={20} /></div>
+                                    <div>
+                                        <h4 className="font-black text-gray-800 text-sm">城市漢堡 虎尾光復店</h4>
+                                        <p className="text-[11px] font-bold text-gray-500">訂單編號 #{order.orderId}</p>
+                                    </div>
+                                </div>
+                                <a href={`tel:${window.settings?.phone || '056323111'}`} className="w-10 h-10 rounded-full bg-purple-50 flex items-center justify-center text-[#5B2274]">
+                                    <Icon name="Phone" size={18} />
+                                </a>
+                            </div>
+
+                            {/* [區塊 3] 餐點明細 */}
+                            <div className="mx-4 mt-4 bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+                                <h3 className="font-black text-gray-800 mb-5 text-base flex items-center gap-2 border-b border-gray-50 pb-3">
+                                    <Icon name="Utensils" size={18} className="text-[#5B2274]" /> 餐點明細
+                                </h3>
+                                
+                                <div className="space-y-6">
+                                    {order.items.map((item, i) => (
+                                        <div key={i} className="flex gap-4">
+                                            <div className="bg-slate-100 px-2 py-1 rounded-lg text-xs font-black text-slate-500 h-fit">{item.qty}x</div>
+                                            <div className="flex-1">
+                                                <div className="flex justify-between items-start mb-1">
+                                                    <span className="font-black text-gray-800 text-sm">{item.name} {item.variantName && `(${item.variantName})`}</span>
+                                                    <span className="font-bold text-gray-800 text-sm">${item.totalPrice}</span>
+                                                </div>
+                                                <div className="text-xs text-gray-500 space-y-1 font-bold">
+                                                    {item.addons?.length > 0 && <p className="text-purple-600">附餐：{item.addons.map(a => a.name).join(' / ')}</p>}
+                                                    {item.sideGroups && Object.values(item.sideGroups).map((side, sIdx) => (
+                                                        <p key={sIdx}>• {side.name} {side.variantName && `(${side.variantName})`} {side.addons?.length > 0 && ` [${side.addons.map(a=>a.name).join('/')}]`}</p>
+                                                    ))}
+                                                    {item.set && (
+                                                        <div className="mt-2 text-[#5B2274] bg-purple-50 p-2 rounded-lg">
+                                                            <p>套餐：{item.set.name}</p>
+                                                            {Object.values(item.setChoices || {}).map((choice, cIdx) => (
+                                                                <p key={cIdx} className="ml-2 text-purple-400 font-medium">• {choice.name} {choice.variantName && `(${choice.variantName})`}</p>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                    {item.note && <p className="text-orange-500 mt-1 italic">備註：{item.note}</p>}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <div className="mt-6 pt-5 border-t border-dashed border-gray-200 space-y-2">
+                                    <div className="flex justify-between text-sm font-bold text-gray-400"><span>小計</span><span>${order.originalPrice || order.totalPrice}</span></div>
+                                    {order.discountAmount > 0 && (
+                                        <div className="flex justify-between text-sm font-bold text-red-500"><span>折扣優惠</span><span>-${order.discountAmount}</span></div>
+                                    )}
+                                    <div className="flex justify-between items-center pt-2 border-t border-gray-50 mt-2">
+                                        <span className="text-gray-800 font-black">總金額</span>
+                                        <span className="text-2xl font-black text-[#5B2274]">${order.totalPrice}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* [區塊 4] 底部動作按鈕 (滿版樣式) */}
+                            <div className="px-6 mt-8 mb-10">
+                                {(['completed', 'cancelled'].includes(order.status)) ? (
+                                    <button onClick={() => { onReorder(order); onClose(); }} className="w-full py-4 bg-[#5B2274] text-white rounded-2xl font-black shadow-xl shadow-purple-100 flex justify-center items-center gap-2 active:scale-95 transition-all">
+                                        <Icon name="RotateCcw" size={20} /> 再次訂購
+                                    </button>
+                                ) : (
+                                    (order.status === 'pending' && isFuture) && (
+                                        <button onClick={() => { onCancel(order); onClose(); }} className="w-full py-4 bg-white text-red-500 border-2 border-red-100 rounded-2xl font-black flex justify-center items-center gap-2 active:bg-red-50 transition-all">
+                                            <Icon name="Ban" size={20} /> 取消預約訂單
+                                        </button>
+                                    )
+                                )}
+                            </div>
+
+                            {/* 輔助時間資訊 */}
+                            <div className="text-center px-10">
+                                <p className="text-[11px] font-bold text-gray-400">下單時間：{formatTime(order.createdAt)}</p>
+                                <p className="text-[11px] font-bold text-gray-400 mb-10">預計取餐：{order.userInfo.pickupDate.replace(/-/g,'/')} {order.userInfo.pickupTime}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+        
         function App() {
             const [settings, setSettings] = useState({ phone: '', address: '', mapsUrl: '', openTime: '06:00', closeTime: '13:30', closedDays: [], statusMode: 'auto', announcements: [], specialDates: [], productTags: [], addonGroups: [] });
             const [categories, setCategories] = useState([]);
@@ -328,6 +507,7 @@
             const [configuringProduct, setConfiguringProduct] = useState(null); 
             const [messageModal, setMessageModal] = useState({ show: false, content: '' });
             const [cancelConfirmModal, setCancelConfirmModal] = useState({ show: false, order: null });
+            const [selectedOrderDetail, setSelectedOrderDetail] = useState(null);
             const [favorites, setFavorites] = useState([]);
             const [orderHistory, setOrderHistory] = useState([]);
             const [userInfo, setUserInfo] = useState({ name: '', phone: '', remember: false, contactMethod: 'line' });
@@ -977,65 +1157,60 @@
                     discountApplied: useLoyaltyCard ? 'loyalty' : (selectedCoupon ? selectedCoupon.code : null), 
                     discountAmount, 
                     userInfo: { ...userInfo, pickupDate, pickupTime: finalTime },
-                    // 如果有點擊 LIFF 登入，會有 currentUser.uid，否則標記為 guest
                     customerUid: currentUser ? currentUser.uid : 'guest', 
                     createdAt: new Date().toISOString(), 
                     status: 'pending',
                     read: false
                 };
 
+                // --- 1. 雲端存儲個人資料 (記住我) ---
                 if (userInfo.remember && currentUser) {
                     const { db, appId, doc, setDoc } = window;
                     try {
                         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', currentUser.uid), {
-                            savedName: userInfo.name,       // 手動輸入姓名
-                            savedPhone: userInfo.phone,     // 手動輸入電話
+                            savedName: userInfo.name,
+                            savedPhone: userInfo.phone,
                             contactMethod: userInfo.contactMethod,
-                            lineDisplayName: lineDisplayName, // 後台記錄用的 LINE 帳號姓名
+                            lineDisplayName: lineDisplayName,
                             updatedAt: new Date().toISOString()
                         });
                     } catch (e) {
                         console.error("雲端存儲個人資料失敗", e);
                     }
                 }
-                // 同時移除舊的本地端儲存 (選做)
+
                 localStorage.removeItem('cb_user_info');
-                
-                // 更新本地歷史紀錄
-                const updatedHistory = [newOrder, ...orderHistory];
-                setOrderHistory(updatedHistory);
                 
                 try {
                     const { db, appId, addDoc, collection } = window;
                     
-                    // 1. 寫入資料庫
-                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), newOrder);
+                    // --- 2. 寫入訂單到資料庫 ---
+                    // 我們需要這個 docRef 來獲取新產生的系統 ID
+                    const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), newOrder);
                     
-                    // 2. 嘗試發送 LINE 訊息 (加入詳細除錯 Alert)
+                    // --- 3. LINE 訊息發送邏輯 ---
                     if (appMode === 'order') {
                         if (window.liff && window.liff.isInClient()) {
-                            // 建立訊息內容
                             const flexMessage = createFlexMessage(newOrder);
-                            
-                            // 執行傳送
                             await window.liff.sendMessages([flexMessage])
-                                .then(() => {
-                                    // 成功不跳窗，安靜通過
-                                    console.log("Message sent to OA");
-                                })
                                 .catch((err) => {
-                                    // ★★★ 關鍵：這裡會顯示為什麼失敗 ★★★
-                                    alert("❌ 訊息傳送失敗\n錯誤代碼: " + err.code + "\n原因: " + err.message);
-                                    console.error("LIFF Send Error", err);
+                                    alert("❌ 訊息傳送失敗\n原因: " + err.message);
                                 });
-                        } else {
-                            // 如果程式判斷不在 LINE 內，會跳這個
-                            // alert("⚠️ 偵測到不在 LINE App 內，跳過訊息發送");
                         }
                     }
 
-                    // 重置購物車與畫面
-                    setCart([]); setShowCartModal(false); setUseLoyaltyCard(false); setSelectedCoupon(null); setCurrentView('history'); setShowSubmitConfirm(false);
+                    // --- 4. 重置 UI 並「跳轉」至滿版進度頁面 ---
+                    setCart([]); 
+                    setShowCartModal(false); 
+                    setUseLoyaltyCard(false); 
+                    setSelectedCoupon(null); 
+                    setShowSubmitConfirm(false);
+                    setCurrentView('history'); // 背景設為紀錄頁
+
+                    // ★ 關鍵修正：設定當前選取的訂單為「剛才送出的這筆」
+                    // 這會立即觸發底部的 OrderDetailModal 顯示滿版進度
+                    setSelectedOrderDetail({ id: docRef.id });
+
                     showAlert("訂單已送出！店家已收到通知");
 
                 } catch(e) {
@@ -1048,13 +1223,30 @@
 
             const confirmCancelOrder = async () => {
                 if (!cancelConfirmModal.order) return;
-                const updatedHistory = orderHistory.map(order => 
-                    order.orderId === cancelConfirmModal.order.orderId ? { ...order, status: 'cancelled' } : order
-                );
-                setOrderHistory(updatedHistory);
-                localStorage.setItem('cb_history', JSON.stringify(updatedHistory));
-                setCancelConfirmModal({ show: false, order: null });
-                showAlert("訂單已取消");
+                
+                const { db, appId, doc, updateDoc } = window;
+                
+                try {
+                    // 使用 Firestore 的 Document ID (order.id) 來定位該筆訂單
+                    const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', cancelConfirmModal.order.id);
+                    
+                    // 正式發送更新到雲端資料庫
+                    await updateDoc(orderRef, { 
+                        status: 'cancelled',
+                        updatedAt: new Date().toISOString()
+                    });
+
+                    // 關閉確認視窗
+                    setCancelConfirmModal({ show: false, order: null });
+                    showAlert("訂單已成功取消");
+                    
+                    // 註：不需要手動更新 setOrderHistory 或 localStorage，
+                    // 因為您的代碼中已有 onSnapshot 會監聽到雲端變化並自動更新畫面。
+                    
+                } catch (e) {
+                    console.error("取消訂單失敗:", e);
+                    showAlert("取消失敗：請確認網路連線，或洽詢店家。");
+                }
             };
 
             const cartTotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
@@ -1183,16 +1375,50 @@
                             </div>
                         )}
                         {currentView === 'history' && (
-                            <div className="flex-1 overflow-y-auto p-5 pb-32">
-                                <h2 className="text-xl font-black text-slate-800 mb-2 flex items-center gap-2"><Icon name="history" className="text-slate-600" /> 訂單紀錄</h2>
-                                <p className="text-xs text-slate-400 mb-4 font-bold">僅顯示最近 30 天內的訂單</p>
-                                {orderHistory.filter(o => { const orderDate = new Date(o.createdAt); const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30); return orderDate >= thirtyDaysAgo; }).length === 0 ? (
-                                    <div className="text-center text-slate-400 mt-20">尚無近 30 天訂單紀錄</div>
+                            <div className="flex-1 overflow-y-auto p-5 pb-32 no-scrollbar">
+                                <h2 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2"><Icon name="history" className="text-slate-600" /> 訂單紀錄</h2>
+                                
+                                {orderHistory.length === 0 ? (
+                                    <div className="text-center text-slate-400 mt-20">尚無訂單紀錄</div>
                                 ) : (
-                                    <div className="space-y-4">
-                                        {orderHistory.filter(o => { const orderDate = new Date(o.createdAt); const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30); return orderDate >= thirtyDaysAgo; }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).map((order, idx) => (
-                                            <OrderHistoryItem key={idx} order={order} onReorder={reorder} onCancel={openCancelConfirm} />
-                                        ))}
+                                    <div className="space-y-8">
+                                        {/* 進行中區塊 */}
+                                        {orderHistory.filter(o => !['completed', 'cancelled'].includes(o.status)).length > 0 && (
+                                            <section>
+                                                <div className="flex items-center gap-3 mb-4">
+                                                    <span className="text-sm font-black text-[#5B2274] bg-purple-50 px-3 py-1 rounded-full text-nowrap">進行中訂單</span>
+                                                    <div className="h-[1px] bg-purple-100 flex-1"></div>
+                                                </div>
+                                                {orderHistory
+                                                    .filter(o => !['completed', 'cancelled'].includes(o.status))
+                                                    .map((order, idx) => (
+                                                        <OrderHistoryItem key={idx} order={order} onOpenDetail={setSelectedOrderDetail} />
+                                                    ))
+                                                }
+                                            </section>
+                                        )}
+
+                                        {/* 歷史紀錄區塊 */}
+                                        {orderHistory.filter(o => ['completed', 'cancelled'].includes(o.status)).length > 0 && (
+                                            <section>
+                                                <div className="flex items-center gap-3 mb-4">
+                                                    <span className="text-sm font-black text-slate-400 bg-slate-50 px-3 py-1 rounded-full text-nowrap">歷史紀錄 (近30天)</span>
+                                                    <div className="h-[1px] bg-slate-100 flex-1"></div>
+                                                </div>
+                                                {orderHistory
+                                                    .filter(o => ['completed', 'cancelled'].includes(o.status))
+                                                    .filter(o => {
+                                                        const orderDate = new Date(o.createdAt);
+                                                        const thirtyDaysAgo = new Date();
+                                                        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+                                                        return orderDate >= thirtyDaysAgo;
+                                                    })
+                                                    .map((order, idx) => (
+                                                        <OrderHistoryItem key={idx} order={order} onOpenDetail={setSelectedOrderDetail} />
+                                                    ))
+                                                }
+                                            </section>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -1481,6 +1707,17 @@
                             </div>
                         </div>
                     )}
+
+                    {/* ★ 關鍵修正點：在這裡替換成條件渲染版本 ★ */}
+                    {selectedOrderDetail && (
+                        <OrderDetailModal 
+                            order={orderHistory.find(o => o.id === selectedOrderDetail?.id)} 
+                            onClose={() => setSelectedOrderDetail(null)} 
+                            onReorder={reorder}
+                            onCancel={openCancelConfirm}
+                        />
+                    )}
+                    
                 </div>
             );
         }
