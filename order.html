@@ -108,6 +108,7 @@
         window.doc = doc;
         window.collection = collection;
         window.addDoc = addDoc;
+        window.setDoc = setDoc;
         window.query = query;
         window.where = where;
         window.orderBy = orderBy;
@@ -308,6 +309,7 @@
         function App() {
             const [settings, setSettings] = useState({ phone: '', address: '', mapsUrl: '', openTime: '06:00', closeTime: '13:30', closedDays: [], statusMode: 'auto', announcements: [], specialDates: [], productTags: [], addonGroups: [] });
             const [categories, setCategories] = useState([]);
+            const [lineDisplayName, setLineDisplayName] = useState('');
             const [products, setProducts] = useState([]);
             const [sets, setSets] = useState([]);
             const [addons, setAddons] = useState([]);
@@ -399,10 +401,7 @@
                             if (window.liff.isLoggedIn()) {
                                 // 取得 LINE 個人資料
                                 const profile = await window.liff.getProfile();
-                                setUserInfo(prev => ({
-                                    ...prev,
-                                    name: prev.name || profile.displayName
-                                }));
+                                setLineDisplayName(profile.displayName);
 
                                 // 3. Firebase Bridge: 使用 LINE ID Token 交換 Firebase 憑證
                                 const idToken = window.liff.getIDToken();
@@ -471,6 +470,27 @@
             // ==========================================
             //  Order History Query (Security Rules Compliant)
             // ==========================================
+            useEffect(() => {
+                const { db, appId, doc, onSnapshot } = window;
+                if (!db || !currentUser) return;
+            
+                // 監聽該使用者的個人設定文件
+                const userDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', currentUser.uid);
+                const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        const userData = docSnap.data();
+                        setUserInfo(prev => ({
+                            ...prev,
+                            name: userData.savedName || '',    // 載入上次手填的姓名
+                            phone: userData.savedPhone || '',
+                            contactMethod: userData.contactMethod || 'line',
+                            remember: true 
+                        }));
+                    }
+                });
+                return () => unsubscribe();
+            }, [currentUser]);
+            
             useEffect(() => {
                 const { db, appId, onSnapshot, collection, query, where } = window;
                 
@@ -1223,8 +1243,22 @@
                     read: false
                 };
 
-                if (userInfo.remember) localStorage.setItem('cb_user_info', JSON.stringify({ name: userInfo.name, phone: userInfo.phone, remember: true, contactMethod: userInfo.contactMethod }));
-                else localStorage.removeItem('cb_user_info');
+                if (userInfo.remember && currentUser) {
+                    const { db, appId, doc, setDoc } = window;
+                    try {
+                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', currentUser.uid), {
+                            savedName: userInfo.name,       // 手動輸入姓名
+                            savedPhone: userInfo.phone,     // 手動輸入電話
+                            contactMethod: userInfo.contactMethod,
+                            lineDisplayName: lineDisplayName, // 後台記錄用的 LINE 帳號姓名
+                            updatedAt: new Date().toISOString()
+                        });
+                    } catch (e) {
+                        console.error("雲端存儲個人資料失敗", e);
+                    }
+                }
+                // 同時移除舊的本地端儲存 (選做)
+                localStorage.removeItem('cb_user_info');
                 
                 // 更新本地歷史紀錄
                 const updatedHistory = [newOrder, ...orderHistory];
