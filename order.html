@@ -332,7 +332,8 @@
                 if (order.status === 'cancelled') return '訂單已取消';
                 if (order.status === 'completed') return '訂單已完成';
                 if (order.status === 'ready') return '餐點已完成';
-                if (order.status === 'confirmed') return '餐點製作中';
+                if (order.status === 'preparing') return '餐點製作中'; // ★ 新增狀態
+                if (order.status === 'confirmed') return '店家已接單'; // ★ 修改狀態意義
                 if (order.status === 'pending') return isFuture ? '預約訂單已成立' : '訂單待店家確認';
                 return '處理中';
             };
@@ -384,8 +385,15 @@
                         return { title: '訂單已完成', desc: '感謝您的訂購，期待再次為您服務！', icon: 'CheckCircle', color: 'text-blue-600', bg: 'bg-blue-100', bar: '#2563EB', width: '100%', anim: false };
                     case 'ready':
                         return { title: '餐點已完成', desc: '您的餐點已準備好，請前往櫃台取餐。', icon: 'ShoppingBag', color: 'text-green-500', bg: 'bg-green-100', bar: '#10B981', width: '100%', anim: true };
+                    
+                    // ★ 新增：製作中 (Preparing)
+                    case 'preparing':
+                        return { title: '餐點製作中', desc: '廚房正在火熱製作您的餐點，請稍候！', icon: 'Flame', color: 'text-orange-500', bg: 'bg-orange-100', bar: '#F97316', width: '80%', anim: true };
+                    
+                    // ★ 修改：已接單 (Confirmed) - 代表「排隊中/準備中」，進度條設為 35%
                     case 'confirmed':
-                        return { title: '餐點製作中', desc: '廚房正在精心製作您的餐點，香氣四溢！', icon: 'Flame', color: 'text-orange-500', bg: 'bg-orange-100', bar: '#F97316', width: '60%', anim: true };
+                        return { title: '店家已接單', desc: '店家已確認您的訂單內容，將依序或於指定時間開始製作。', icon: 'ClipboardCheck', color: 'text-blue-600', bg: 'bg-blue-100', bar: '#3B82F6', width: '35%', anim: false };
+                    
                     case 'pending':
                     default:
                         return isFuture 
@@ -393,7 +401,6 @@
                             : { title: '訂單待店家確認', desc: '店家正在確認您的訂單內容，請稍候。', icon: 'ClipboardList', color: 'text-[#5B2274]', bg: 'bg-purple-100', bar: '#5B2274', width: '15%', anim: false };
                 }
             };
-
             const config = getStatusConfig();
             const formatTime = (iso) => { if(!iso) return "-"; const d = new Date(iso); return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
 
@@ -2140,3 +2147,4 @@
     </script>
 </body>
 </html>
+
