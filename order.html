@@ -732,23 +732,24 @@
             }, [currentUser]); // Dependency updated to currentUser
 
             useEffect(() => {
+                useEffect(() => {
                 const params = new URLSearchParams(window.location.search);
                 const orderIdFromUrl = params.get('id');
                 
-                // 只有當 categories 載入完成 (代表基礎資料已到) 才進行判斷
+                // 只有當基礎資料 categories 載入後才執行判斷
                 if (categories.length > 0) {
                     if (orderIdFromUrl) {
-                        // 嘗試從歷史紀錄找 (如果已登入且有權限)
-                        // 若尚未載入完成 orderHistory，這裡可能會先略過，但下方 orderHistory 的 useEffect 會補抓
                         const targetOrder = orderHistory.find(o => o.id === orderIdFromUrl);
                         if (targetOrder) {
                             setSelectedOrderDetail(targetOrder);
-                            // 清除網址參數
-                            const newUrl = window.location.origin + window.location.pathname;
-                            window.history.replaceState(null, '', newUrl);
+                            // 延遲關閉載入，確保詳情頁已準備好
+                            setTimeout(() => setIsInitLoading(false), 500);
+                            return; 
                         }
+                        // 如果有 ID 但還沒在 history 找到，先不關閉 loading，等待 history 更新
+                        if (orderHistory.length === 0) return; 
                     }
-                    // 資料載入完成，關閉 Splash
+                    // 無參數或已處理完畢，關閉啟動頁
                     setTimeout(() => setIsInitLoading(false), 800);
                 }
             }, [categories, orderHistory]);
@@ -1380,7 +1381,8 @@
                 if (selectedItem.sideGroups?.length > 0) {
                     for (const group of selectedItem.sideGroups) {
                         if (!selectedSideGroups[group.id]) {
-                            return { valid: false, msg: `請選擇 ${group.title || '附餐'}` };
+                            // 顯示具體的組件標題
+                            return { valid: false, msg: `請選擇附餐內的 ${group.title || '項目'}` };
                         }
                     }
                 }
@@ -1473,7 +1475,7 @@
                     )}
 
                     {/* [修正：主區域 pb-32] 確保不被底部擋住 */}
-                    <div className="flex flex-1 overflow-hidden bg-white mt-1 pb-32 relative">
+                    <div className="flex flex-1 overflow-hidden bg-white mt-1 pb-24 relative">
                         {currentView === 'menu' && (
                             <>
                                 <nav className="w-24 bg-slate-50 border-r border-slate-100 overflow-y-auto no-scrollbar shrink-0 pt-2 pb-24">
@@ -1586,7 +1588,7 @@
                     </div>
 
                     {/* [修正：底部高度與安全區域] 使用 h-75 並居中對齊 */}
-                    <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around items-center h-[calc(75px+env(safe-area-inset-bottom))] z-50 shadow-[0_-5px_25px_rgba(0,0,0,0.08)] pb-[env(safe-area-inset-bottom)]">
+                    <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around items-center h-[calc(70px+env(safe-area-inset-bottom))] z-50 shadow-[0_-8px_20px_rgba(0,0,0,0.05)] pb-[env(safe-area-inset-bottom)]">
                         <button onClick={() => setCurrentView('menu')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'menu' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="utensils" size={20} /><span className="text-[10px] font-bold">菜單</span></button>
                         <button onClick={() => setCurrentView('favorites')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'favorites' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="heart" size={20} className={currentView === 'favorites' ? 'fill-current' : ''} /><span className="text-[10px] font-bold">收藏</span></button>
                         <button onClick={() => setCurrentView('coupons')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'coupons' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="ticket" size={20} /><span className="text-[10px] font-bold">優惠券</span></button>
@@ -1697,7 +1699,7 @@
                                                     let setImg = getOptimizedImage(s.image, 200) || 'https://placehold.co/100x100?text=Set';
                                                     if (!s.image) { const fixedItem = s.contents?.find(c => c.type === 'fixed'); if (fixedItem) { const p = products.find(prod => prod.id === fixedItem.productId); if (p && p.image) setImg = getOptimizedImage(p.image, 200); } }
                                                     return (
-                                                        <div key={setId} onClick={() => { if(isSelected) { setSelectedSet(null); setExpandedSetId(null); } else { setSelectedSet(s); setExpandedSetId(setId); } }} className={`rounded-2xl border shadow-sm overflow-hidden transition-all cursor-pointer ${isSelected ? 'border-[#5B2274] ring-2 ring-[#5B2274]' : 'border-slate-100 bg-white'}`}>
+                                                        <div key={setId} onClick={() => { if(isSelected) { setSelectedSet(null); setExpandedSetId(null); setSelectedSetChoices({}); } else { setSelectedSet(null); setExpandedSetId(null); setSelectedSetChoices({}); } }} className={`rounded-2xl border shadow-sm overflow-hidden transition-all cursor-pointer ${isSelected ? 'border-[#5B2274] ring-2 ring-[#5B2274]' : 'border-slate-100 bg-white'}`}>
                                                             <div className={`flex gap-3 p-3 items-center ${isSelected ? 'bg-purple-50' : 'bg-white'}`}><div className="w-16 h-16 rounded-xl bg-slate-100 border border-slate-100 overflow-hidden shrink-0 aspect-square"><img src={setImg} className="w-full h-full object-cover" /></div><div className="flex-1 min-w-0"><div className="flex justify-between items-center"><p className="text-sm font-bold text-slate-800 truncate">{s.name}</p><span className="text-sm font-black text-[#5B2274]">+${s.price}</span></div><div className="flex justify-between items-center mt-1"><span className="text-[10px] text-slate-400 font-bold">查看內容</span><div className={`w-5 h-5 rounded-full border flex items-center justify-center ${isSelected ? 'bg-[#5B2274] border-[#5B2274]' : 'border-slate-300'}`}>{isSelected && <Icon name="check" size={12} className="text-white" />}</div></div></div></div>
                                                             {isExpanded && (
                                                                 <div className="p-3 pt-0 border-t border-slate-100 animate-fade-in" onClick={e => e.stopPropagation()}>
@@ -1900,3 +1902,4 @@
     </script>
 </body>
 </html>
+
