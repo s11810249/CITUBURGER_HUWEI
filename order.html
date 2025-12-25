@@ -735,7 +735,6 @@
             }, [currentUser]); // Dependency updated to currentUser
 
             useEffect(() => {
-                useEffect(() => {
                 const params = new URLSearchParams(window.location.search);
                 const orderIdFromUrl = params.get('id');
                 
@@ -2154,5 +2153,3 @@
     </script>
 </body>
 </html>
-
-
