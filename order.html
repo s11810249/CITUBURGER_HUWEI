@@ -93,6 +93,31 @@
             transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s;
         }
 
+        .safe-area-bottom {
+            padding-bottom: env(safe-area-inset-bottom, 20px);
+        }
+        .body-lock {
+            overflow: hidden !important;
+            height: 100vh !important;
+            touch-action: none;
+        }
+        .full-width-note {
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+        /* 載入畫面 */
+        .splash-screen {
+            position: fixed;
+            inset: 0;
+            background-color: #5B2274;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            color: white;
+        }
+
     </style>
 </head>
 <body class="select-none">
@@ -538,6 +563,7 @@
             const [selectedSetChoices, setSelectedSetChoices] = useState({}); 
             const [itemNote, setItemNote] = useState('');
             const [expandedSetId, setExpandedSetId] = useState(null);
+            const [isInitLoading, setIsInitLoading] = useState(true);
 
             const getTaiwanDate = () => {
                 const d = new Date();
@@ -706,23 +732,36 @@
             }, [currentUser]); // Dependency updated to currentUser
 
             useEffect(() => {
-                // 解析網址參數
                 const params = new URLSearchParams(window.location.search);
                 const orderIdFromUrl = params.get('id');
                 
-                // 如果網址有 id，且訂單紀錄已經從 Firebase 載入完畢 (orderHistory 有資料)
-                if (orderIdFromUrl && orderHistory.length > 0) {
-                    const targetOrder = orderHistory.find(o => o.id === orderIdFromUrl);
-                    if (targetOrder) {
-                        // 自動將該訂單設為選取，這會觸發你的「滿版進度頁面」跳出來
-                        setSelectedOrderDetail(targetOrder);
-                        
-                        // 為了美觀，清掉網址上的 id，避免客人按返回鍵時重複彈出
-                        const newUrl = window.location.origin + window.location.pathname;
-                        window.history.replaceState(null, '', newUrl);
+                // 只有當 categories 載入完成 (代表基礎資料已到) 才進行判斷
+                if (categories.length > 0) {
+                    if (orderIdFromUrl) {
+                        // 嘗試從歷史紀錄找 (如果已登入且有權限)
+                        // 若尚未載入完成 orderHistory，這裡可能會先略過，但下方 orderHistory 的 useEffect 會補抓
+                        const targetOrder = orderHistory.find(o => o.id === orderIdFromUrl);
+                        if (targetOrder) {
+                            setSelectedOrderDetail(targetOrder);
+                            // 清除網址參數
+                            const newUrl = window.location.origin + window.location.pathname;
+                            window.history.replaceState(null, '', newUrl);
+                        }
                     }
+                    // 資料載入完成，關閉 Splash
+                    setTimeout(() => setIsInitLoading(false), 800);
                 }
-            }, [orderHistory]); // 關鍵：當 orderHistory 改變時（抓到資料後）就會執行檢查
+            }, [categories, orderHistory]);
+
+            useEffect(() => {
+                const isLocked = selectedItem || showCartModal || selectedOrderDetail || showInfoModal || selectionModal || showSubmitConfirm;
+                if (isLocked) {
+                    document.body.classList.add('body-lock');
+                } else {
+                    document.body.classList.remove('body-lock');
+                }
+                return () => document.body.classList.remove('body-lock');
+            }, [selectedItem, showCartModal, selectedOrderDetail, showInfoModal, selectionModal, showSubmitConfirm]);
 
             const showAlert = (msg) => { setMessageModal({ show: true, content: msg }); };
             const dayNames = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
@@ -915,12 +954,66 @@
             };
 
             const isSameItem = (item1, item2) => {
-                if (item1.productId !== item2.productId || item1.variantName !== item2.variantName || item1.set?.id !== item2.set?.id || item1.note !== item2.note) return false;
-                const addons1 = (item1.addons || []).map(a => a.id).sort();
-                const addons2 = (item2.addons || []).map(a => a.id).sort();
-                if (addons1.length !== addons2.length || !addons1.every((val, index) => val === addons2[index])) return false;
+                if (item1.productId !== item2.productId) return false;
+                if (item1.variantName !== item2.variantName) return false;
+                if (item1.note?.trim() !== item2.note?.trim()) return false; // 備註不同視為不同商品
+                
+                // 深度比對 Set (套餐) ID
+                if (item1.set?.id !== item2.set?.id) return false;
+
+                // 輔助函式：將物件排序後轉字串比對
+                const sortAndStringify = (obj) => {
+                    if (!obj) return '';
+                    if (Array.isArray(obj)) return JSON.stringify(obj.map(x => x.id).sort());
+                    // 針對 SetChoices 或 SideGroups 這種 Key-Value 物件
+                    const keys = Object.keys(obj).sort();
+                    const simplified = keys.map(k => `${k}:${obj[k].id}:${JSON.stringify(obj[k].addons?.map(a=>a.id).sort())}`);
+                    return JSON.stringify(simplified);
+                };
+
+                const addons1 = sortAndStringify(item1.addons);
+                const addons2 = sortAndStringify(item2.addons);
+                if (addons1 !== addons2) return false;
+
+                const sides1 = sortAndStringify(item1.sideGroups);
+                const sides2 = sortAndStringify(item2.sideGroups);
+                if (sides1 !== sides2) return false;
+
+                const setChoice1 = sortAndStringify(item1.setChoices);
+                const setChoice2 = sortAndStringify(item2.setChoices);
+                if (setChoice1 !== setChoice2) return false;
+
                 return true;
             };
+
+            const validateSelection = () => {
+                if (!selectedItem) return { valid: false, msg: '' };
+                
+                // 1. 規格驗證
+                if (selectedItem.variants?.length > 0 && !selectedVariant) {
+                    return { valid: false, msg: '請選擇規格' };
+                }
+
+                // 2. 客製化驗證 (Addons) - 假設設定檔有 min/max/required
+                // 這裡模擬針對 "groupedItemAddons" 的檢查
+                for (const group of groupedItemAddons) {
+                    // 模擬資料結構：若 group 本身有 isRequired 屬性 (需後端資料配合，這裡預留邏輯)
+                    // 目前範例先檢查：如果有 isRequired 且選取數量為 0
+                    if (group.isRequired) {
+                        const selectedInGroup = selectedAddons.filter(a => group.items.some(gi => gi.id === a.id));
+                        if (selectedInGroup.length === 0) return { valid: false, msg: `請選擇 ${group.name}` };
+                    }
+                    // 檢查數量上限 (如果資料有 max 屬性)
+                    if (group.max > 0) {
+                        const selectedInGroup = selectedAddons.filter(a => group.items.some(gi => gi.id === a.id));
+                        if (selectedInGroup.length > group.max) return { valid: false, msg: `${group.name} 最多選 ${group.max} 項` };
+                    }
+                }
+
+                return { valid: true, msg: '' };
+            };
+            
+            const selectionStatus = validateSelection();
 
             const handleAddToCart = () => {
                 if (!selectedItem) return;
@@ -992,8 +1085,31 @@
                 if (!pickupDate) { showAlert("請選擇取餐日期"); return; }
                 if (!isASAP && (!pickupHour || !pickupMinute)) { showAlert("請選擇取餐時間"); return; }
                 if (cart.length === 0) return;
-                // Check if user is logged in via Firebase before submitting
                 if (!currentUser) { showAlert("請先登入 LINE (請在 LINE 中開啟)"); return; }
+                
+                // 檢查購物車內是否有已售完商品
+                const outOfStockItems = [];
+                const outMaterialIds = materials.filter(m => m.isOut).map(m => m.id);
+                
+                cart.forEach(item => {
+                    const prod = products.find(p => p.id === item.productId);
+                    if (!prod) return;
+                    
+                    // 檢查主商品
+                    if (prod.materials && prod.materials.some(id => outMaterialIds.includes(id))) {
+                        outOfStockItems.push(item.name);
+                    }
+                    // 檢查規格
+                    if (item.variant && item.variant.materials && item.variant.materials.some(id => outMaterialIds.includes(id))) {
+                        outOfStockItems.push(`${item.name}-${item.variantName}`);
+                    }
+                    // 這裡可以繼續檢查 Set 或 Sides，但先檢查主體最重要
+                });
+
+                if (outOfStockItems.length > 0) {
+                    showAlert(`以下商品已售完，請先移除：\n${outOfStockItems.join('、')}`);
+                    return;
+                }
                 setShowSubmitConfirm(true);
             };
 
@@ -1232,11 +1348,12 @@
                     setUseLoyaltyCard(false); 
                     setSelectedCoupon(null); 
                     setShowSubmitConfirm(false);
+                    
+                    // 強制切換到歷史紀錄頁面，並開啟該訂單
                     setCurrentView('history');
-
-                    setSelectedOrderDetail({ id: docRef.id });
-
-                    showAlert("訂單已送出！店家已收到通知");
+                    setTimeout(() => {
+                        setSelectedOrderDetail({ id: docRef.id });
+                    }, 100);
 
                 } catch (e) {
                     console.error("提交訂單失敗:", e);
@@ -1300,6 +1417,17 @@
                 );
             };
 
+            if (isInitLoading) {
+                return (
+                    <div className="splash-screen">
+                        <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center mb-4 shadow-xl">
+                            <Icon name="Utensils" size={40} className="text-[#5B2274]" />
+                        </div>
+                        <h1 className="text-2xl font-black tracking-widest animate-pulse">CITY BURGER</h1>
+                    </div>
+                );
+            }
+            
             return (
                 <div className="h-screen flex flex-col overflow-hidden bg-[#F8F9FA]">
                     <header className="shrink-0 relative z-30 header-curve shadow-xl" style={{ backgroundColor: BRAND_COLOR }}>
@@ -1444,7 +1572,7 @@
                         )}
                     </div>
 
-                    <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around items-center h-16 z-50 shadow-[0_-5px_15px_rgba(0,0,0,0.05)]">
+                    <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around items-start pt-3 h-[calc(60px+env(safe-area-inset-bottom))] z-50 shadow-[0_-5px_15px_rgba(0,0,0,0.05)] safe-area-bottom">
                         <button onClick={() => setCurrentView('menu')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'menu' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="utensils" size={20} /><span className="text-[10px] font-bold">菜單</span></button>
                         <button onClick={() => setCurrentView('favorites')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'favorites' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="heart" size={20} className={currentView === 'favorites' ? 'fill-current' : ''} /><span className="text-[10px] font-bold">收藏</span></button>
                         <button onClick={() => setCurrentView('coupons')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'coupons' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="ticket" size={20} /><span className="text-[10px] font-bold">優惠券</span></button>
@@ -1582,7 +1710,19 @@
                                 {checkAvailability(selectedItem) !== 'all_out' && (
                                     <div className="absolute bottom-0 left-0 right-0 p-4 bg-white border-t border-slate-100 flex items-center gap-4 z-20">
                                         <div className="flex items-center gap-3 bg-slate-100 rounded-xl px-3 py-2"><button onClick={() => setItemCount(Math.max(1, itemCount-1))} className="w-8 h-8 flex items-center justify-center bg-white rounded-lg shadow-sm active:scale-95 text-slate-600"><Icon name="minus" size={16} /></button><span className="font-black text-lg w-6 text-center">{itemCount}</span><button onClick={() => setItemCount(itemCount+1)} className="w-8 h-8 flex items-center justify-center bg-[#5B2274] text-white rounded-lg shadow-sm active:scale-95"><Icon name="plus" size={16} /></button></div>
-                                        <button onClick={handleAddToCart} disabled={selectedItem.variants?.length > 0 && !selectedVariant} className={`flex-1 py-3.5 rounded-xl font-black text-white shadow-lg flex justify-between px-6 items-center transition-all ${selectedItem.variants?.length > 0 && !selectedVariant ? 'bg-slate-300 cursor-not-allowed' : 'bg-[#5B2274] hover:bg-[#4a1b5e] active:scale-95'}`}><span>{editingCartItem ? '更新購物車' : '加入購物車'}</span><span>${((selectedVariant ? selectedVariant.price : selectedItem.price) + selectedAddons.reduce((s,a)=>s+a.price,0) + (selectedSet ? (selectedSet.price + (function(){let d=0; selectedSet.contents?.forEach((c,i)=>{const ch=selectedSetChoices[i]; if(ch && c.type==='category' && c.allowChange && c.defaultProductId){const dp=products.find(p=>p.id===c.defaultProductId); let dpr=dp?dp.price:0; if(dp && c.defaultVariantName){const dv=dp.variants?.find(v=>v.name===c.defaultVariantName); if(dv)dpr=dv.price;} d+=(ch.price-dpr);}}); return d;})()) : 0) + (function(){let d=0; selectedItem.sideGroups?.forEach(g=>{const ch=selectedSideGroups[g.id]; if(ch && g.allowChange && g.defaultProductId){const dp=products.find(p=>p.id===g.defaultProductId); let dpr=dp?dp.price:0; if(dp && g.defaultVariantName){const dv=dp.variants?.find(v=>v.name===g.defaultVariantName); if(dv)dpr=dv.price;} d+=(ch.price-dpr);}}); return d;})()) * itemCount}</span></button>
+                                        <button 
+                                            onClick={handleAddToCart} 
+                                            disabled={!selectionStatus.valid} 
+                                            className={`flex-1 py-3.5 rounded-xl font-black text-white shadow-lg flex justify-between px-6 items-center transition-all 
+                                                ${!selectionStatus.valid ? 'bg-slate-300 cursor-not-allowed' : 'bg-[#5B2274] hover:bg-[#4a1b5e] active:scale-95'}`}
+                                        >
+                                            <span>
+                                                {!selectionStatus.valid ? selectionStatus.msg : (editingCartItem ? '更新購物車' : '加入購物車')}
+                                            </span>
+                                            {selectionStatus.valid && (
+                                                <span>${((selectedVariant ? selectedVariant.price : selectedItem.price) + selectedAddons.reduce((s,a)=>s+a.price,0) + (selectedSet ? (selectedSet.price + (function(){let d=0; selectedSet.contents?.forEach((c,i)=>{const ch=selectedSetChoices[i]; if(ch && c.type==='category' && c.allowChange && c.defaultProductId){const dp=products.find(p=>p.id===c.defaultProductId); let dpr=dp?dp.price:0; if(dp && c.defaultVariantName){const dv=dp.variants?.find(v=>v.name===c.defaultVariantName); if(dv)dpr=dv.price;} d+=(ch.price-dpr);}}); return d;})()) : 0) + (function(){let d=0; selectedItem.sideGroups?.forEach(g=>{const ch=selectedSideGroups[g.id]; if(ch && g.allowChange && g.defaultProductId){const dp=products.find(p=>p.id===g.defaultProductId); let dpr=dp?dp.price:0; if(dp && g.defaultVariantName){const dv=dp.variants?.find(v=>v.name===g.defaultVariantName); if(dv)dpr=dv.price;} d+=(ch.price-dpr);}}); return d;})()) * itemCount}</span>
+                                            )}
+                                        </button>
                                     </div>
                                 )}
                             </div>
@@ -1629,7 +1769,7 @@
                                                 <div className="flex-1 min-w-0 pr-8"><h4 className="font-black text-slate-800 text-sm truncate">{item.name}</h4><p className="text-xs text-slate-500 font-bold">{item.variantName}</p>{item.addons.length > 0 && <p className="text-xs text-slate-400 mt-1">{item.addons.map(a => a.name).join(' / ')}</p>}
                                                 {item.sideGroups && Object.keys(item.sideGroups).length > 0 && (<div className="text-xs text-slate-600 bg-purple-50 p-2 rounded-lg mt-1 space-y-1"><p className="font-bold text-[#5B2274] mb-1">附餐：</p>{Object.values(item.sideGroups).map(c => (<div key={c.id}><span className="font-bold text-slate-700 mr-2">• {c.name} {c.variantName && `(${c.variantName})`}</span>{c.addons?.length > 0 && <span className="text-slate-400 block pl-2">{c.addons.map(a => a.name).join(' / ')}</span>}</div>))}</div>)}
                                                 {item.set && (<div className="text-xs text-slate-600 bg-purple-50 p-2 rounded-lg mt-1 space-y-1"><p className="font-bold text-[#5B2274] mb-1">套餐：{item.set.name}</p>{item.set.contents?.map((c, i) => { const ch = item.setChoices?.[i]; let dn = 'Unknown', dv = ''; if (ch) { dn = ch.name; dv = ch.variantName; } else if (c.type === 'fixed') { const p = products.find(prod=>prod.id === c.productId); if(p) dn = p.name; } else if (c.type === 'category') { const p = products.find(prod=>prod.id === c.defaultProductId); if(p) dn = p.name; } return (<div key={i} className="flex flex-col"><span className="font-bold text-slate-700">• {dn} {dv && `(${dv})`}</span>{ch?.addons?.length > 0 && <span className="text-slate-400 pl-3">{ch.addons.map(a => a.name).join(' / ')}</span>}</div>); })}</div>)}
-                                                {item.note && <p className="text-xs text-orange-500 bg-orange-50 px-1 rounded inline-block mt-1">備註：{item.note}</p>}<div className="flex items-center justify-between mt-2"><div className="flex items-center gap-2 bg-slate-50 rounded-lg px-2 py-1"><button onClick={() => item.qty > 1 ? updateCartQty(item.id, -1) : removeFromCart(item.id)} className="w-6 h-6 flex items-center justify-center bg-white rounded shadow-sm text-slate-600"><Icon name={item.qty > 1 ? "minus" : "trash-2"} size={12} /></button><span className="font-bold text-sm w-4 text-center">{item.qty}</span><button onClick={() => updateCartQty(item.id, 1)} className="w-6 h-6 flex items-center justify-center bg-white rounded shadow-sm text-slate-600"><Icon name="plus" size={12} /></button></div><span className="font-bold text-slate-700 text-sm">${item.totalPrice}</span></div></div>
+                                                {item.note && <p className="text-xs text-orange-500 bg-orange-50 px-2 py-1.5 rounded w-full block mt-2 font-medium break-words">備註：{item.note}</p>}<div className="flex items-center justify-between mt-2"><div className="flex items-center gap-2 bg-slate-50 rounded-lg px-2 py-1"><button onClick={() => item.qty > 1 ? updateCartQty(item.id, -1) : removeFromCart(item.id)} className="w-6 h-6 flex items-center justify-center bg-white rounded shadow-sm text-slate-600"><Icon name={item.qty > 1 ? "minus" : "trash-2"} size={12} /></button><span className="font-bold text-sm w-4 text-center">{item.qty}</span><button onClick={() => updateCartQty(item.id, 1)} className="w-6 h-6 flex items-center justify-center bg-white rounded shadow-sm text-slate-600"><Icon name="plus" size={12} /></button></div><span className="font-bold text-slate-700 text-sm">${item.totalPrice}</span></div></div>
                                             </div>
                                         ))}
                                     </div>
