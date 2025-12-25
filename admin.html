@@ -296,53 +296,65 @@
             const [customerNote, setCustomerNote] = useState(''); 
             const [isFetchingUser, setIsFetchingUser] = useState(false); 
 
-            // 當打開編輯訂單 Modal 時，自動去抓這位客人的永久註記
+            // 定義統一的資料庫路徑產生器 (避免手寫錯誤)
+            const getUserDocRef = (uid) => {
+                const { db, appId } = window.firebase;
+                const { doc } = window.firestore;
+                // 確保這裡的路徑與您的 Firestore Rules 完全一致
+                return doc(db, 'artifacts', appId, 'public', 'data', 'users', uid);
+            };
+
+            // 1. 讀取顧客資料
             useEffect(() => {
                 if (modal && modal.type === 'edit_order' && modal.data?.customerUid) {
                     setIsFetchingUser(true);
-                    
-                    // 1. ★ 從 window 物件取得 db 與 firestore 方法
-                    const { db } = window.firebase;
-                    const { doc, onSnapshot } = window.firestore;
+                    try {
+                        const { onSnapshot } = window.firestore;
+                        const userRef = getUserDocRef(modal.data.customerUid);
 
-                    // 2. ★ 使用 v9 語法 (onSnapshot) 監聽資料
-                    // 這裡改用 onSnapshot 而非 get().then()，因為您的專案設定中比較容易取得 onSnapshot
-                    const unsubscribe = onSnapshot(doc(db, 'users', modal.data.customerUid), (docSnap) => {
-                        if (docSnap.exists()) {
-                            setCustomerNote(docSnap.data().internalNote || '');
-                        } else {
-                            setCustomerNote('');
-                        }
-                        setIsFetchingUser(false);
-                    }, (error) => {
-                        console.error("讀取客戶資料失敗:", error);
-                        setIsFetchingUser(false);
-                    });
+                        const unsubscribe = onSnapshot(userRef, (docSnap) => {
+                            if (docSnap.exists()) {
+                                console.log("讀取成功:", docSnap.data()); // Debug用
+                                setCustomerNote(docSnap.data().internalNote || '');
+                            } else {
+                                console.log("查無此人資料，將建立新檔");
+                                setCustomerNote('');
+                            }
+                            setIsFetchingUser(false);
+                        }, (error) => {
+                            console.error("讀取監聽失敗:", error);
+                            setIsFetchingUser(false);
+                        });
 
-                    // 關閉 Modal 時取消監聽
-                    return () => unsubscribe();
+                        return () => unsubscribe();
+                    } catch (e) {
+                        console.error("讀取初始化錯誤:", e);
+                        setIsFetchingUser(false);
+                    }
                 } else {
                     setCustomerNote('');
                 }
             }, [modal]);
 
-            // 儲存顧客註記的函式
+            // 2. 儲存顧客註記
             const saveCustomerNote = async () => {
-                if (!modal.data?.customerUid) return;
+                if (!modal.data?.customerUid) {
+                    alert("錯誤：此訂單沒有綁定 customerUid，無法儲存。");
+                    return;
+                }
                 
-                // 1. ★ 取得 db 與 setDoc
-                const { db } = window.firebase;
-                const { doc, setDoc } = window.firestore;
-
                 try {
-                    // 2. ★ 使用 v9 語法 (setDoc) 儲存
-                    await setDoc(doc(db, 'users', modal.data.customerUid), {
+                    const { setDoc } = window.firestore;
+                    const userRef = getUserDocRef(modal.data.customerUid);
+
+                    await setDoc(userRef, {
                         internalNote: customerNote
-                    }, { merge: true }); // merge: true 避免覆蓋其他欄位
-                    alert('顧客永久註記已更新！下次此人點餐會自動顯示。');
+                    }, { merge: true });
+                    
+                    alert('✅ 成功！顧客永久註記已寫入資料庫。');
                 } catch (error) {
-                    console.error("儲存失敗:", error);
-                    alert('儲存失敗，請檢查權限或網路');
+                    console.error("儲存失敗詳細原因:", error);
+                    alert(`儲存失敗！\n請檢查 Console 錯誤訊息。\n常見原因：規則權限不足或路徑錯誤。`);
                 }
             };
                     
@@ -724,285 +736,224 @@
                             
                             {/* Order Management Tab */}
                             {activeTab === 'orders' && (() => {
-                                // 1. 資料分類與過濾邏輯
+                                // 1. 資料處理與過濾
                                 const todayStr = getTaiwanDateStr();
-                                const currentTab = orderFilter; // 'today', 'future', 'history'
+                                const currentTab = ['today', 'future', 'history'].includes(orderFilter) ? orderFilter : 'today';
                                 
-                                let targetOrders = [];
-                                
-                                if (currentTab === 'history') {
-                                    // 歷史模式：依照選擇的日期過濾
-                                    targetOrders = orders.filter(o => {
-                                        const pDate = o.userInfo?.pickupDate || '';
-                                        // 包含：已完成、已取消、或非今日且非未來的過期單
-                                        const isFinished = ['completed', 'cancelled'].includes(o.status);
-                                        const isPast = pDate < todayStr && !isFinished; 
-                                        // 這裡邏輯：歷史頁籤顯示 "選定日期" 的所有訂單 (包含當天已結案)
-                                        return (o.userInfo?.pickupDate === historyDate); 
-                                    });
-                                } else {
-                                    // 今日與未來
-                                    targetOrders = orders.filter(o => {
-                                        const pDate = o.userInfo?.pickupDate || '1970-01-01';
-                                        const isDone = ['completed', 'cancelled'].includes(o.status);
-                                        if (isDone) return false; // 已結案的不在今日/未來列表 (除非您想顯示)
-                                        
-                                        if (currentTab === 'today') return pDate === todayStr;
-                                        if (currentTab === 'future') return pDate > todayStr;
-                                        return false;
-                                    });
-                                }
-                
-                                // 2. 排序邏輯 (依取餐時間 ASC，快到的在上面；ASAP 最優先)
-                                targetOrders.sort((a, b) => {
-                                    if (currentTab === 'history') return new Date(b.createdAt) - new Date(a.createdAt); // 歷史按建立時間新到舊
-                                    
-                                    const timeA = a.userInfo?.pickupTime === 'ASAP' ? '00:00' : (a.userInfo?.pickupTime || '23:59');
-                                    const timeB = b.userInfo?.pickupTime === 'ASAP' ? '00:00' : (b.userInfo?.pickupTime || '23:59');
-                                    const dateA = a.userInfo?.pickupDate || '9999-99-99';
-                                    const dateB = b.userInfo?.pickupDate || '9999-99-99';
-                                    
-                                    if (dateA !== dateB) return dateA.localeCompare(dateB);
-                                    return timeA.localeCompare(timeB);
+                                let targetOrders = orders.filter(o => {
+                                    const pDate = o.userInfo?.pickupDate || '1970-01-01';
+                                    const isDone = ['completed', 'cancelled'].includes(o.status);
+                                    if (currentTab === 'history') return isDone || (pDate < todayStr && !isDone);
+                                    if (isDone) return false;
+                                    if (currentTab === 'today') return pDate === todayStr;
+                                    if (currentTab === 'future') return pDate > todayStr;
+                                    return false;
                                 });
                 
-                                // 3. 統計數據計算
-                                const stats = {
-                                    total: targetOrders.length,
-                                    amount: targetOrders.reduce((sum, o) => sum + (o.totalPrice || 0), 0),
-                                    discount: targetOrders.reduce((sum, o) => sum + (o.discountAmount || 0), 0),
-                                    loyaltyCount: targetOrders.filter(o => o.discountApplied === 'loyalty').length,
-                                    couponCount: targetOrders.filter(o => o.discountApplied && o.discountApplied !== 'loyalty').length,
-                                    // 假設有 deliveryType 欄位 (內用/外帶)，若無則可忽略
-                                    takeout: targetOrders.filter(o => !o.deliveryType || o.deliveryType === 'takeout').length,
-                                    eatin: targetOrders.filter(o => o.deliveryType === 'eatin').length,
+                                // 排序：緊急的在上面
+                                targetOrders.sort((a, b) => {
+                                    if (currentTab === 'history') return new Date(b.createdAt) - new Date(a.createdAt);
+                                    const timeA = a.userInfo?.pickupTime === 'ASAP' ? '00:00' : (a.userInfo?.pickupTime || '23:59');
+                                    const timeB = b.userInfo?.pickupTime === 'ASAP' ? '00:00' : (b.userInfo?.pickupTime || '23:59');
+                                    return (a.userInfo?.pickupDate || '').localeCompare(b.userInfo?.pickupDate || '') || timeA.localeCompare(timeB);
+                                });
+                
+                                // 2. 狀態定義 (專業版配色)
+                                const STATUS_CONFIG = {
+                                    'pending':   { color: 'bg-yellow-400', text: 'text-yellow-700', label: '新訂單', icon: 'BellRing' },
+                                    'confirmed': { color: 'bg-blue-500',   text: 'text-blue-600',   label: '已接單', icon: 'ChefHat' },
+                                    'preparing': { color: 'bg-orange-500', text: 'text-orange-600', label: '製作中', icon: 'Flame' },
+                                    'ready':     { color: 'bg-emerald-500',text: 'text-emerald-600',label: '可取餐', icon: 'ShoppingBag' },
+                                    'completed': { color: 'bg-slate-500',  text: 'text-slate-500',  label: '已完成', icon: 'CheckCircle2' },
+                                    'cancelled': { color: 'bg-red-500',    text: 'text-red-500',    label: '已取消', icon: 'XCircle' }
                                 };
                 
-                                // 4. 尖峰警告
-                                const peakHours = currentTab === 'today' ? calculatePeakLoad(targetOrders) : null;
-                
                                 return (
-                                    <div className="animate-fade-in space-y-6 pb-24">
-                                        {/* 頂部標題與過濾器 */}
-                                        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+                                    <div className="animate-fade-in pb-24 max-w-3xl mx-auto">
+                                        {/* 頂部儀表板 (Dashboard Header) */}
+                                        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 flex justify-between items-center sticky top-0 z-20">
                                             <div>
-                                                <h2 className="text-3xl font-[900] text-slate-800 tracking-tight">訂單管理中心</h2>
-                                                <p className="text-slate-400 font-bold text-xs mt-1">
-                                                    {currentTab === 'today' ? '掌握今日即時訂單脈動' : (currentTab === 'future' ? '預覽未來預約排程' : '查詢過往銷售紀錄')}
+                                                <h2 className="text-xl font-[900] text-slate-800 tracking-tight">訂單管理</h2>
+                                                <p className="text-xs font-bold text-slate-400 mt-0.5">
+                                                    {currentTab === 'today' ? formatTaiwanDate(new Date()) : (currentTab === 'future' ? '未來預約' : '歷史查詢')}
                                                 </p>
                                             </div>
-                                            
-                                            <div className="flex gap-2 bg-white p-1.5 rounded-xl shadow-sm border border-slate-200">
-                                                {[{id: 'today', label: '今日作業'}, {id: 'future', label: '未來預約'}, {id: 'history', label: '歷史查詢'}].map(t => (
+                                            {/* 分頁切換器 (Pill Switch) */}
+                                            <div className="bg-slate-100 p-1 rounded-lg flex text-xs font-bold">
+                                                {[{id:'today', t:'今日'}, {id:'future', t:'預約'}, {id:'history', t:'歷史'}].map(t => (
                                                     <button 
-                                                        key={t.id} 
+                                                        key={t.id}
                                                         onClick={() => setOrderFilter(t.id)}
-                                                        className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${orderFilter === t.id ? 'bg-[#5B2274] text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
+                                                        className={`px-3 py-1.5 rounded-md transition-all ${currentTab === t.id ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400'}`}
                                                     >
-                                                        {t.label}
+                                                        {t.t}
                                                     </button>
                                                 ))}
                                             </div>
                                         </div>
                 
-                                        {/* 歷史日期選擇器 */}
-                                        {currentTab === 'history' && (
-                                            <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-4 animate-fade-in">
-                                                <label className="text-sm font-bold text-slate-500">選擇查詢日期：</label>
-                                                <input 
-                                                    type="date" 
-                                                    value={historyDate} 
-                                                    onChange={(e) => setHistoryDate(e.target.value)}
-                                                    className="input-compact font-bold bg-slate-50 w-auto"
-                                                />
-                                                <div className="h-4 w-px bg-slate-200 mx-2"></div>
-                                                <span className="text-xs font-bold text-slate-400">顯示該日期的所有訂單紀錄 (含已結案)</span>
-                                            </div>
-                                        )}
-                
-                                        {/* 統計儀表板 */}
-                                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                                            <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden group">
-                                                <div className="absolute right-0 top-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity text-[#5B2274]"><Icon name="DollarSign" size={48} /></div>
-                                                <p className="text-xs font-bold text-slate-400 uppercase">總營業額 ({currentTab === 'history' ? historyDate : '本日'})</p>
-                                                <p className="text-2xl font-[900] text-slate-800 mt-1">${stats.amount.toLocaleString()}</p>
-                                            </div>
-                                            <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden group">
-                                                <div className="absolute right-0 top-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity text-blue-500"><Icon name="ShoppingBag" size={48} /></div>
-                                                <p className="text-xs font-bold text-slate-400 uppercase">總單量</p>
-                                                <p className="text-2xl font-[900] text-slate-800 mt-1">{stats.total} <span className="text-sm text-slate-400 font-medium">單</span></p>
-                                            </div>
-                                            <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden group">
-                                                <div className="absolute right-0 top-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity text-red-500"><Icon name="Ticket" size={48} /></div>
-                                                <p className="text-xs font-bold text-slate-400 uppercase">折扣成本</p>
-                                                <p className="text-2xl font-[900] text-red-500 mt-1">-${stats.discount.toLocaleString()}</p>
-                                                <p className="text-[10px] text-slate-400 font-bold mt-1">券: {stats.couponCount} / 點數: {stats.loyaltyCount}</p>
-                                            </div>
-                                            {/* 尖峰預警 Card */}
-                                            {peakHours && (
-                                                <div className="bg-orange-50 p-4 rounded-2xl shadow-sm border border-orange-100 relative overflow-hidden animate-pulse">
-                                                    <div className="absolute right-0 top-0 p-3 opacity-20 text-orange-600"><Icon name="AlertTriangle" size={48} /></div>
-                                                    <p className="text-xs font-bold text-orange-600 uppercase">尖峰負荷預警</p>
-                                                    <p className="text-sm font-[900] text-orange-800 mt-1">
-                                                        {peakHours.map(h => `${h}:00`).join(', ')} 時段單量過大
-                                                    </p>
-                                                    <p className="text-[10px] font-bold text-orange-600/70 mt-1">建議暫停接單或延長準備時間</p>
-                                                </div>
-                                            )}
-                                        </div>
-                
-                                        {/* 訂單列表 */}
+                                        {/* 訂單列表 (Cards) */}
                                         <div className="space-y-4">
                                             {targetOrders.map(order => {
-                                                // 計算倒數時間與狀態顏色
-                                                const pickupDt = getOrderPickupTime(order);
-                                                let timeStatusClass = "bg-slate-50 border-slate-100";
-                                                let countdownText = "";
-                                                let isOverdue = false;
-                
-                                                if (pickupDt && order.status !== 'completed' && order.status !== 'cancelled') {
-                                                    const diffMs = pickupDt - currentTime;
-                                                    const diffMins = Math.floor(diffMs / 60000);
-                
-                                                    if (diffMs < 0) {
-                                                        // 已逾時
-                                                        isOverdue = true;
-                                                        timeStatusClass = "bg-slate-800 border-slate-700 text-white"; // 深灰底
-                                                        countdownText = `已逾時 ${Math.abs(diffMins)} 分`;
-                                                    } else if (diffMins < 5) {
-                                                        // < 5 分鐘：紅色閃爍
-                                                        timeStatusClass = "bg-red-50 border-red-200 animate-pulse border-l-4 border-l-red-500";
-                                                        countdownText = `剩餘 ${diffMins} 分 (緊急)`;
-                                                    } else if (diffMins < 10) {
-                                                        // < 10 分鐘：黃色
-                                                        timeStatusClass = "bg-yellow-50 border-yellow-200 border-l-4 border-l-yellow-400";
-                                                        countdownText = `剩餘 ${diffMins} 分`;
-                                                    } else if (diffMins < 20) {
-                                                        // < 20 分鐘：綠色
-                                                        timeStatusClass = "bg-emerald-50 border-emerald-200 border-l-4 border-l-emerald-500";
-                                                        countdownText = `剩餘 ${diffMins} 分`;
-                                                    } else {
-                                                        // 安全時間
-                                                        countdownText = `還有 ${Math.floor(diffMins/60)}時 ${diffMins%60}分`;
-                                                    }
-                                                }
+                                                const statusCfg = STATUS_CONFIG[order.status] || STATUS_CONFIG['pending'];
+                                                const isUrgent = order.userInfo?.pickupTime === 'ASAP';
+                                                const itemCount = order.items?.reduce((acc, item) => acc + item.qty, 0) || 0;
                 
                                                 return (
-                                                    <div key={order.id} className={`glass-panel p-0 rounded-2xl overflow-hidden transition-all hover:shadow-lg flex flex-col lg:flex-row ${isOverdue ? 'opacity-90' : ''}`}>
-                                                        {/* 左側資訊區 */}
-                                                        <div className="flex-1 p-5 space-y-4">
-                                                            {/* Header */}
-                                                            <div className="flex justify-between items-start">
-                                                                <div className="flex items-center gap-3">
-                                                                    <span className="text-xs font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">#{order.orderId.slice(-4)}</span>
-                                                                    <span className={`text-xs font-bold px-3 py-1 rounded-full border ${STATUS_MAP[order.status]?.class}`}>
-                                                                        {STATUS_MAP[order.status]?.label}
-                                                                    </span>
-                                                                    {isOverdue && <span className="text-xs font-black bg-slate-700 text-white px-2 py-1 rounded animate-bounce">OVERDUE</span>}
+                                                    <div key={order.id} className="bg-white rounded-xl shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)] border border-slate-100 overflow-hidden relative group transition-all hover:shadow-md">
+                                                        {/* 1. 頂部狀態條 (Color Bar) */}
+                                                        <div className={`h-1.5 w-full ${statusCfg.color}`}></div>
+                
+                                                        {/* 2. 卡片主要內容區 */}
+                                                        <div className="p-4 sm:p-5">
+                                                            {/* Header: 時間與單號 */}
+                                                            <div className="flex justify-between items-start mb-4">
+                                                                <div className="flex flex-col">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider text-white ${statusCfg.color}`}>
+                                                                            {statusCfg.label}
+                                                                        </span>
+                                                                        <span className="text-xs font-bold text-slate-400">#{order.orderId.slice(-4)}</span>
+                                                                    </div>
+                                                                    {/* 大字號時間顯示 */}
+                                                                    <div className="flex items-baseline gap-1 mt-1">
+                                                                        <h3 className={`text-3xl font-[900] tracking-tight ${isUrgent ? 'text-red-500' : 'text-slate-800'}`}>
+                                                                            {order.userInfo?.pickupTime}
+                                                                        </h3>
+                                                                        {isUrgent && <span className="text-xs font-black text-red-500 animate-pulse">盡快</span>}
+                                                                    </div>
                                                                 </div>
+                                                                {/* 右側：金額與編輯 */}
                                                                 <div className="text-right">
+                                                                    <div className="text-xl font-[900] text-slate-700">${order.totalPrice}</div>
                                                                     <button 
-                                                                        onClick={() => setModal({ type: 'edit_order', data: order })} 
-                                                                        className="text-xs font-bold text-slate-400 hover:text-[#5B2274] flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-lg border border-slate-200"
+                                                                        onClick={() => setModal({ type: 'edit_order', data: order })}
+                                                                        className="text-xs font-bold text-slate-400 hover:text-blue-600 underline mt-1"
                                                                     >
-                                                                        <Icon name="Settings" size={12} /> 管理/修改
+                                                                        查看/編輯
                                                                     </button>
                                                                 </div>
                                                             </div>
                 
-                                                            {/* 客戶與時間 */}
-                                                            <div className="flex flex-col lg:flex-row lg:items-center gap-4">
-                                                                <div>
-                                                                    <h3 className="font-[800] text-xl text-slate-800">{order.userInfo?.name}</h3>
-                                                                    <a href={`tel:${order.userInfo?.phone}`} className="text-sm font-bold text-slate-400 hover:text-blue-500 flex items-center gap-1 mt-0.5">
-                                                                        <Icon name="Phone" size={12} /> {order.userInfo?.phone}
+                                                            {/* 客戶資訊列 */}
+                                                            <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-lg border border-slate-100 mb-4">
+                                                                <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-slate-400 border border-slate-100 shadow-sm font-bold">
+                                                                    {order.userInfo?.name?.[0]}
+                                                                </div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="text-sm font-bold text-slate-700 truncate">{order.userInfo?.name}</div>
+                                                                    <a href={`tel:${order.userInfo?.phone}`} className="text-xs text-blue-500 font-bold hover:underline flex items-center gap-1">
+                                                                        <Icon name="Phone" size={12}/> {order.userInfo?.phone}
                                                                     </a>
                                                                 </div>
-                                                                
-                                                                {/* 倒數計時條 */}
-                                                                {!['completed', 'cancelled'].includes(order.status) && (
-                                                                    <div className={`flex-1 flex items-center gap-3 px-4 py-3 rounded-xl border ${timeStatusClass}`}>
-                                                                        <Icon name="Clock" size={20} className={isOverdue ? "text-white" : "text-slate-600"} />
-                                                                        <div>
-                                                                            <div className={`text-xs font-bold uppercase tracking-wider ${isOverdue ? "text-slate-300" : "text-slate-400"}`}>取餐時間</div>
-                                                                            <div className={`text-base font-[900] ${isOverdue ? "text-white" : "text-slate-800"}`}>
-                                                                                {order.userInfo?.pickupTime} 
-                                                                                <span className="ml-2 text-sm opacity-80">({countdownText})</span>
-                                                                            </div>
+                                                                <div className="text-right">
+                                                                    <span className="text-xs font-bold text-slate-500 bg-white px-2 py-1 rounded border border-slate-100">
+                                                                        共 {itemCount} 項
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                
+                                                            {/* 餐點簡表 (只列出前 3 項，保持乾淨) */}
+                                                            <div className="space-y-2 mb-4">
+                                                                {order.items?.slice(0, 3).map((item, idx) => (
+                                                                    <div key={idx} className="flex justify-between items-start text-sm">
+                                                                        <div className="flex gap-2">
+                                                                            <span className="font-bold text-slate-400 shrink-0 w-5">{item.qty}x</span>
+                                                                            <span className="font-bold text-slate-700">
+                                                                                {item.name}
+                                                                                {item.variantName && <span className="text-slate-400 text-xs font-medium ml-1">({item.variantName})</span>}
+                                                                            </span>
                                                                         </div>
+                                                                    </div>
+                                                                ))}
+                                                                {order.items?.length > 3 && (
+                                                                    <div className="text-xs text-center text-slate-400 font-bold py-1 bg-slate-50 rounded-md">
+                                                                        ... 還有 {order.items.length - 3} 項餐點
+                                                                    </div>
+                                                                )}
+                                                                {order.note && (
+                                                                    <div className="mt-2 text-xs font-bold text-orange-600 bg-orange-50 px-2 py-1.5 rounded border border-orange-100 flex items-start gap-1">
+                                                                        <Icon name="MessageSquare" size={12} className="mt-0.5"/>
+                                                                        <span>備註：{order.note}</span>
                                                                     </div>
                                                                 )}
                                                             </div>
-                
-                                                            {/* 簡易明細 (只顯示前兩項，完整請點詳情) */}
-                                                            <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 space-y-1">
-                                                                {order.items?.slice(0, 2).map((item, i) => (
-                                                                    <div key={i} className="text-xs font-bold text-slate-600 flex justify-between">
-                                                                        <span>{item.qty}x {item.name} <span className="text-slate-400 font-medium">{item.variantName}</span></span>
-                                                                        <span>${item.totalPrice}</span>
-                                                                    </div>
-                                                                ))}
-                                                                {order.items?.length > 2 && <div className="text-[10px] text-slate-400 font-bold text-center pt-1">...還有 {order.items.length - 2} 項</div>}
-                                                                
-                                                                {/* 總計與折扣顯示 */}
-                                                                <div className="border-t border-slate-200 border-dashed mt-2 pt-2 flex justify-between items-center">
-                                                                    <div className="flex gap-2">
-                                                                        {order.discountAmount > 0 && (
-                                                                            <span className="text-xs font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded border border-red-100 flex items-center gap-1">
-                                                                                <Icon name="Tag" size={10} /> -${order.discountAmount}
-                                                                                {order.discountApplied === 'loyalty' && '(集點卡)'}
-                                                                            </span>
-                                                                        )}
-                                                                        {order.note && <span className="text-xs font-bold text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded border border-orange-100">有備註</span>}
-                                                                    </div>
-                                                                    <span className="text-lg font-[900] text-[#5B2274]">${order.totalPrice}</span>
-                                                                </div>
-                                                            </div>
                                                         </div>
                 
-                                                        {/* 右側操作按鈕區 (狀態流轉) */}
-                                                        <div className="border-t lg:border-t-0 lg:border-l border-slate-100 bg-slate-50/50 p-4 flex lg:flex-col gap-2 justify-center lg:w-48 shrink-0">
+                                                        {/* 3. 底部操作區 (Action Bar) - 大按鈕設計 */}
+                                                        <div className="grid grid-cols-2 border-t border-slate-100 divide-x divide-slate-100 bg-slate-50/50">
+                                                            {/* 待處理狀態 */}
                                                             {order.status === 'pending' && (
                                                                 <>
-                                                                    <Button variant="primary" icon="ClipboardCheck" className="w-full bg-blue-600 hover:bg-blue-700 shadow-blue-200" onClick={() => handleUpdateOrderStatus(order.id, 'confirmed')}>接單</Button>
-                                                                    <Button variant="danger" icon="X" className="w-full" onClick={() => { if(confirm('拒單？')) handleUpdateOrderStatus(order.id, 'cancelled'); }}>拒單</Button>
+                                                                    <button 
+                                                                        onClick={() => handleUpdateOrderStatus(order.id, 'confirmed')}
+                                                                        className="py-4 text-blue-600 font-black text-sm hover:bg-blue-50 transition-colors flex items-center justify-center gap-2"
+                                                                    >
+                                                                        <Icon name="ClipboardCheck" size={18}/> 接單
+                                                                    </button>
+                                                                    <button 
+                                                                        onClick={() => { if(confirm('拒單？')) handleUpdateOrderStatus(order.id, 'cancelled'); }}
+                                                                        className="py-4 text-slate-400 font-bold text-sm hover:bg-red-50 hover:text-red-500 transition-colors"
+                                                                    >
+                                                                        拒絕
+                                                                    </button>
                                                                 </>
                                                             )}
+                                                            
+                                                            {/* 已接單 -> 製作中 */}
                                                             {order.status === 'confirmed' && (
                                                                 <>
-                                                                    <Button variant="primary" icon="Flame" className="w-full bg-orange-500 hover:bg-orange-600 shadow-orange-200" onClick={() => handleUpdateOrderStatus(order.id, 'preparing')}>開始製作</Button>
-                                                                    <div className="text-xs text-center text-slate-400 font-bold">等待製作</div>
+                                                                    <button 
+                                                                        onClick={() => handleUpdateOrderStatus(order.id, 'preparing')}
+                                                                        className="col-span-2 py-4 text-orange-600 font-black text-sm bg-orange-50/50 hover:bg-orange-100 transition-colors flex items-center justify-center gap-2"
+                                                                    >
+                                                                        <Icon name="Flame" size={18}/> 開始製作
+                                                                    </button>
                                                                 </>
                                                             )}
+                
+                                                            {/* 製作中 -> 完成 */}
                                                             {order.status === 'preparing' && (
                                                                 <>
-                                                                    <Button variant="primary" icon="Check" className="w-full bg-emerald-500 hover:bg-emerald-600 shadow-emerald-200" onClick={() => handleUpdateOrderStatus(order.id, 'ready')}>製作完成</Button>
-                                                                    <div className="text-xs text-center text-orange-500 font-bold animate-pulse">製作中...</div>
+                                                                    <button 
+                                                                        onClick={() => handleUpdateOrderStatus(order.id, 'ready')}
+                                                                        className="col-span-2 py-4 text-emerald-600 font-black text-sm bg-emerald-50/50 hover:bg-emerald-100 transition-colors flex items-center justify-center gap-2"
+                                                                    >
+                                                                        <Icon name="CheckCircle" size={18}/> 製作完成
+                                                                    </button>
                                                                 </>
                                                             )}
+                
+                                                            {/* 待取餐 -> 結案 */}
                                                             {order.status === 'ready' && (
                                                                 <>
-                                                                    <Button variant="primary" icon="ShoppingBag" className="w-full bg-[#5B2274] hover:bg-[#4a1b5e]" onClick={() => handleUpdateOrderStatus(order.id, 'completed')}>完成取餐</Button>
-                                                                    <div className="text-xs text-center text-emerald-600 font-bold">待取餐</div>
+                                                                    <button 
+                                                                        onClick={() => handleUpdateOrderStatus(order.id, 'completed')}
+                                                                        className="col-span-2 py-4 text-[#5B2274] font-black text-sm bg-purple-50 hover:bg-purple-100 transition-colors flex items-center justify-center gap-2"
+                                                                    >
+                                                                        <Icon name="ShoppingBag" size={18}/> 確認取餐 (結案)
+                                                                    </button>
                                                                 </>
                                                             )}
+                
+                                                            {/* 歷史訂單狀態顯示 */}
                                                             {['completed', 'cancelled'].includes(order.status) && (
-                                                                <div className="text-center">
-                                                                    <div className={`inline-flex p-3 rounded-full mb-2 ${order.status === 'completed' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-500'}`}>
-                                                                        <Icon name={order.status === 'completed' ? 'CheckCheck' : 'X'} size={24} />
-                                                                    </div>
-                                                                    <div className="text-xs font-bold text-slate-400">{order.status === 'completed' ? '已結案' : '已取消'}</div>
+                                                                <div className="col-span-2 py-3 text-center text-xs font-bold text-slate-400 flex items-center justify-center gap-2">
+                                                                    {order.status === 'completed' ? '訂單已結案' : '訂單已取消'}
+                                                                    <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded">
+                                                                        {formatDate(order.createdAt)}
+                                                                    </span>
                                                                 </div>
                                                             )}
                                                         </div>
                                                     </div>
                                                 );
                                             })}
-                                            
+                
                                             {targetOrders.length === 0 && (
-                                                <div className="text-center py-20 bg-white rounded-2xl border-2 border-dashed border-slate-200">
-                                                    <div className="text-slate-300 mb-2"><Icon name="Inbox" size={48} /></div>
-                                                    <p className="text-slate-400 font-bold">目前沒有符合條件的訂單</p>
+                                                <div className="flex flex-col items-center justify-center py-20 text-slate-300">
+                                                    <Icon name="Coffee" size={48} strokeWidth={1.5} />
+                                                    <p className="mt-4 font-bold text-sm">目前沒有相關訂單</p>
                                                 </div>
                                             )}
                                         </div>
