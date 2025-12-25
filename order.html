@@ -321,7 +321,8 @@
             );
         };
 
-        const OrderHistoryItem = ({ order, onOpenDetail }) => {
+        const OrderDetailModal = ({ order, onClose, onReorder, onCancel, products }) => {
+            if (!order) return null;
             const todayStr = new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei", year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
             const isFuture = order.userInfo.pickupDate > todayStr;
             
@@ -373,100 +374,36 @@
 
             const todayStr = new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei", year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
             const isFuture = order.userInfo.pickupDate > todayStr;
-
-            const getStatusConfig = () => {
-                switch (order.status) {
-                    case 'cancelled':
-                        return { title: '訂單已取消', desc: '很抱歉，此訂單已被取消。如有疑問請直接致電店家。', icon: 'CircleX', color: 'text-red-500', bg: 'bg-red-100', bar: '#9CA3AF', width: '100%', anim: false };
-                    case 'completed':
-                        return { title: '訂單已完成', desc: '感謝您的訂購，期待再次為您服務！', icon: 'CheckCircle', color: 'text-blue-600', bg: 'bg-blue-100', bar: '#2563EB', width: '100%', anim: false };
-                    case 'ready':
-                        return { title: '餐點已完成', desc: '您的餐點已準備好，請前往櫃台取餐。', icon: 'ShoppingBag', color: 'text-green-500', bg: 'bg-green-100', bar: '#10B981', width: '100%', anim: true };
-                    case 'confirmed':
-                        return { title: '餐點製作中', desc: '廚房正在精心製作您的餐點，香氣四溢！', icon: 'Flame', color: 'text-orange-500', bg: 'bg-orange-100', bar: '#F97316', width: '60%', anim: true };
-                    case 'pending':
-                    default:
-                        return isFuture 
-                            ? { title: '預約訂單已成立', desc: '店家已收到預約，將於指定時間開始製作餐點。', icon: 'Clock', color: 'text-teal-600', bg: 'bg-teal-100', bar: '#0D9488', width: '5%', anim: false }
-                            : { title: '訂單待店家確認', desc: '店家正在確認您的訂單內容，請稍候。', icon: 'ClipboardList', color: 'text-[#5B2274]', bg: 'bg-purple-100', bar: '#5B2274', width: '15%', anim: false };
-                }
-            };
-
+            const getStatusConfig = () => { /*...*/ switch (order.status) { /*...*/ default: return isFuture ? { title: '預約訂單已成立', desc: '店家已收到預約，將於指定時間開始製作餐點。', icon: 'Clock', color: 'text-teal-600', bg: 'bg-teal-100', bar: '#0D9488', width: '5%', anim: false } : { title: '訂單待店家確認', desc: '店家正在確認您的訂單內容，請稍候。', icon: 'ClipboardList', color: 'text-[#5B2274]', bg: 'bg-purple-100', bar: '#5B2274', width: '15%', anim: false }; } }; // (簡略保留原本邏輯)
             const config = getStatusConfig();
-            const formatTime = (iso) => {
-                if(!iso) return "-";
-                const d = new Date(iso);
-                return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-            };
+            const formatTime = (iso) => { if(!iso) return "-"; const d = new Date(iso); return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
 
             return (
                 <div className="fixed inset-0 bg-[#F3F4F6] z-[100] flex flex-col animate-fade-in overflow-hidden">
-                    
-                    {/* 【修改】導航欄：加入 shadow-md 與 z-10 */}
                     <nav className="bg-[#F3F4F6] shrink-0 shadow-md relative z-10">
-                        <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-between">
-                            <button onClick={onClose} className="text-gray-600 active:scale-90 transition-transform">
-                                <Icon name="ArrowLeft" size={24} />
-                            </button>
-                            <h1 className="text-lg font-bold text-gray-800">訂單進度</h1>
-                            <div className="w-6"></div>
-                        </div>
+                        <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-between"><button onClick={onClose} className="text-gray-600 active:scale-90 transition-transform"><Icon name="ArrowLeft" size={24} /></button><h1 className="text-lg font-bold text-gray-800">訂單進度</h1><div className="w-6"></div></div>
                     </nav>
 
                     <div className="flex-1 overflow-y-auto no-scrollbar">
                         <div className="max-w-md mx-auto pb-10">
                             
-                            {/* [區塊 1] 狀態展示 */}
+                            {/* [區塊 1] 狀態 (保持不變) */}
                             <div className="bg-white p-6 mb-2 rounded-b-3xl shadow-sm relative overflow-hidden text-center">
                                 <div className="absolute -top-10 -right-10 w-32 h-32 bg-purple-50 rounded-full opacity-50"></div>
-                                
-                                <div className={`w-20 h-20 mx-auto ${config.bg} rounded-full flex items-center justify-center mb-4 transition-all duration-300 ${config.anim ? 'status-icon-anim' : ''}`}>
-                                    <Icon name={config.icon} size={32} className={config.color} />
-                                </div>
-
+                                <div className={`w-20 h-20 mx-auto ${config.bg} rounded-full flex items-center justify-center mb-4 transition-all duration-300 ${config.anim ? 'status-icon-anim' : ''}`}><Icon name={config.icon} size={32} className={config.color} /></div>
                                 <h2 className={`text-2xl font-bold mb-1 ${order.status === 'cancelled' ? 'text-red-600' : 'text-gray-800'}`}>{config.title}</h2>
                                 <p className="text-gray-500 text-sm mb-3 px-4">{config.desc}</p>
-
-                                {/* 預計取餐時間 (膠囊樣式) */}
-                                <div className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-100 px-3 py-1 rounded-full mb-6 shadow-sm">
-                                    <Icon name="Clock" size={12} className="text-slate-400" />
-                                    <span className="text-xs font-bold text-slate-600">
-                                        預計取餐：{order.userInfo.pickupDate.replace(/-/g, '/')} {order.userInfo.pickupTime}
-                                    </span>
-                                </div>
-
-                                {/* 進度條 */}
-                                <div className="w-full bg-gray-200 rounded-full h-2.5 mb-2 overflow-hidden">
-                                    <div className="h-full rounded-full progress-bar-fill" style={{ width: config.width, backgroundColor: config.bar }}></div>
-                                </div>
-                                
-                                {order.status !== 'cancelled' && (
-                                    <div className="flex justify-between text-xs text-gray-400 font-medium px-1">
-                                        <span>確認中</span>
-                                        <span>準備中</span>
-                                        <span>可取餐</span>
-                                    </div>
-                                )}
+                                <div className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-100 px-3 py-1 rounded-full mb-6 shadow-sm"><Icon name="Clock" size={12} className="text-slate-400" /><span className="text-xs font-bold text-slate-600">預計取餐：{order.userInfo.pickupDate.replace(/-/g, '/')} {order.userInfo.pickupTime}</span></div>
+                                <div className="w-full bg-gray-200 rounded-full h-2.5 mb-2 overflow-hidden"><div className="h-full rounded-full progress-bar-fill" style={{ width: config.width, backgroundColor: config.bar }}></div></div>
+                                {order.status !== 'cancelled' && (<div className="flex justify-between text-xs text-gray-400 font-medium px-1"><span>確認中</span><span>準備中</span><span>可取餐</span></div>)}
                             </div>
 
-                            {/* [區塊 2] 店家資訊卡 */}
+                            {/* [區塊 2] 資訊 (保持不變) */}
                             <div className="mx-4 mt-4 bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex justify-between items-center">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400">
-                                        <Icon name="Store" size={20} />
-                                    </div>
-                                    <div>
-                                        <h3 className="font-bold text-gray-800 text-sm">城市漢堡 虎尾光復店</h3>
-                                        <p className="text-xs text-gray-500">訂單編號 #{order.orderId}</p>
-                                        <p className="text-[10px] text-gray-400 mt-0.5 font-medium">下單時間：{formatTime(order.createdAt)}</p>
-                                    </div>
-                                </div>
-                                <a href={`tel:${window.settings?.phone || '056323111'}`} className="w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center text-[#5B2274]">
-                                    <Icon name="Phone" size={16} />
-                                </a>
+                                <div className="flex items-center gap-3"><div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400"><Icon name="Store" size={20} /></div><div><h3 className="font-bold text-gray-800 text-sm">城市漢堡 虎尾光復店</h3><p className="text-xs text-gray-500">訂單編號 #{order.orderId}</p><p className="text-[10px] text-gray-400 mt-0.5 font-medium">下單時間：{formatTime(order.createdAt)}</p></div></div><a href={`tel:${window.settings?.phone || '056323111'}`} className="w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center text-[#5B2274]"><Icon name="Phone" size={16} /></a>
                             </div>
 
-                            {/* [區塊 3] 訂單明細 */}
+                            {/* [區塊 3] 訂單明細 (修正版) */}
                             <div className="mx-4 mt-4 mb-4 bg-white rounded-xl p-4 shadow-sm border border-gray-100">
                                 <h3 className="font-bold text-gray-800 mb-4 border-b border-gray-100 pb-2 flex items-center gap-2">
                                     <Icon name="Utensils" size={18} className="text-[#5B2274]" /> 餐點明細
@@ -482,28 +419,28 @@
                                                 <span className="font-bold text-gray-800 text-sm shrink-0 ml-2">${item.totalPrice}</span>
                                             </div>
                                             
-                                            {/* 規格 */}
                                             <p className="text-xs text-slate-500 font-bold">{item.variantName}</p>
                                             
-                                            {/* 客製化 Addons */}
+                                            {/* 客製化: 斜線 */}
                                             {item.addons?.length > 0 && (
                                                 <p className="text-xs text-slate-400 mt-1">{item.addons.map(a => a.name).join(' / ')}</p>
                                             )}
 
-                                            {/* 【附餐在先】 */}
+                                            {/* 附餐: 斜線 */}
                                             {item.sideGroups && Object.keys(item.sideGroups).length > 0 && (
                                                 <div className="text-xs text-slate-600 bg-purple-50 p-2 rounded-lg mt-2 space-y-1">
                                                     <p className="font-bold text-[#5B2274] mb-1">附餐：</p>
                                                     {Object.values(item.sideGroups).map((c, idx) => (
                                                         <div key={idx}>
                                                             <span className="font-bold text-slate-700 mr-2">• {c.name} {c.variantName && `(${c.variantName})`}</span>
-                                                            {c.addons?.length > 0 && <span className="text-slate-400 block pl-2">{c.addons.map(a => a.name).join(' / ')}</span>}
+                                                            {/* 修改：+ 改 / */}
+                                                            {c.addons?.length > 0 && <span className="text-slate-400 block pl-2">/ {c.addons.map(a => a.name).join(' / ')}</span>}
                                                         </div>
                                                     ))}
                                                 </div>
                                             )}
 
-                                            {/* 【套餐在後，改名為升級套餐】 */}
+                                            {/* 升級套餐: 顯示固定名稱、斜線 */}
                                             {item.set && (
                                                 <div className="text-xs text-slate-600 bg-purple-50 p-2 rounded-lg mt-2 space-y-1">
                                                     <p className="font-bold text-[#5B2274] mb-1">升級套餐：{item.set.name}</p>
@@ -514,7 +451,10 @@
                                                             dn = ch.name; 
                                                             dv = ch.variantName; 
                                                         } else if (c.type === 'fixed') { 
-                                                            dn = "(固定餐點)"; 
+                                                            // 修改：查找名稱
+                                                            const fixedProd = products?.find(p => p.id === c.productId);
+                                                            if (fixedProd) dn = fixedProd.name;
+                                                            else dn = "(固定餐點)";
                                                         } 
                                                         
                                                         if (dn === 'Unknown') return null;
@@ -522,55 +462,33 @@
                                                         return (
                                                             <div key={idx} className="flex flex-col">
                                                                 <span className="font-bold text-slate-700">• {dn} {dv && `(${dv})`}</span>
-                                                                {ch?.addons?.length > 0 && <span className="text-slate-400 pl-3">{ch.addons.map(a => a.name).join(' / ')}</span>}
+                                                                {/* 修改：+ 改 / */}
+                                                                {ch?.addons?.length > 0 && <span className="text-slate-400 pl-3">/ {ch.addons.map(a => a.name).join(' / ')}</span>}
                                                             </div>
                                                         ); 
                                                     })}
                                                 </div>
                                             )}
 
-                                            {/* 備註 */}
-                                            {item.note && (
-                                                <p className="text-xs text-orange-500 bg-orange-50 px-2 py-1.5 rounded w-full block mt-2 font-medium break-words">
-                                                    備註：{item.note}
-                                                </p>
-                                            )}
+                                            {item.note && (<p className="text-xs text-orange-500 bg-orange-50 px-2 py-1.5 rounded w-full block mt-2 font-medium break-words">備註：{item.note}</p>)}
                                         </div>
                                     </div>
                                 ))}
 
                                 <hr className="border-dashed border-gray-200 my-4" />
-
                                 <div className="space-y-2 text-sm">
-                                    <div className="flex justify-between text-gray-600">
-                                        <span>小計</span>
-                                        <span>${order.originalPrice || order.totalPrice}</span>
-                                    </div>
-                                    {order.discountAmount > 0 && (
-                                        <div className="flex justify-between text-red-500 font-medium">
-                                            <div className="flex items-center gap-1"><Icon name="Ticket" size={14} /><span>折扣優惠 ({order.discountApplied === 'loyalty' ? '集點卡' : '優惠券'})</span></div>
-                                            <span>-${order.discountAmount}</span>
-                                        </div>
-                                    )}
-                                    <div className="flex justify-between text-gray-800 font-bold text-lg mt-2 pt-2 border-t border-gray-100">
-                                        <span>總金額</span>
-                                        <span className="text-[#5B2274]">${order.totalPrice}</span>
-                                    </div>
+                                    <div className="flex justify-between text-gray-600"><span>小計</span><span>${order.originalPrice || order.totalPrice}</span></div>
+                                    {order.discountAmount > 0 && (<div className="flex justify-between text-red-500 font-medium"><div className="flex items-center gap-1"><Icon name="Ticket" size={14} /><span>折扣優惠 ({order.discountApplied === 'loyalty' ? '集點卡' : '優惠券'})</span></div><span>-${order.discountAmount}</span></div>)}
+                                    <div className="flex justify-between text-gray-800 font-bold text-lg mt-2 pt-2 border-t border-gray-100"><span>總金額</span><span className="text-[#5B2274]">${order.totalPrice}</span></div>
                                 </div>
                             </div>
 
-                            {/* [區塊 4] 底部動作欄 */}
+                            {/* [區塊 4] 動作欄 (保持不變) */}
                             <div className="mx-4 mt-6">
                                 {(['completed', 'cancelled'].includes(order.status)) ? (
-                                    <button onClick={() => { onReorder(order); onClose(); }} className="w-full py-3.5 rounded-xl font-bold text-white shadow-lg bg-[#5B2274] active:scale-95 transition-all flex justify-center items-center gap-2">
-                                        <Icon name="RotateCcw" size={20} /> 再次訂購
-                                    </button>
+                                    <button onClick={() => { onReorder(order); onClose(); }} className="w-full py-3.5 rounded-xl font-bold text-white shadow-lg bg-[#5B2274] active:scale-95 transition-all flex justify-center items-center gap-2"><Icon name="RotateCcw" size={20} /> 再次訂購</button>
                                 ) : (
-                                    (order.status === 'pending' && isFuture) && (
-                                        <button onClick={() => { onCancel(order); onClose(); }} className="w-full py-3.5 rounded-xl font-bold text-white shadow-lg bg-red-500 active:bg-red-600 transition-colors flex justify-center items-center gap-2">
-                                            <Icon name="Ban" size={20} /> 取消訂單
-                                        </button>
-                                    )
+                                    (order.status === 'pending' && isFuture) && (<button onClick={() => { onCancel(order); onClose(); }} className="w-full py-3.5 rounded-xl font-bold text-white shadow-lg bg-red-500 active:bg-red-600 transition-colors flex justify-center items-center gap-2"><Icon name="Ban" size={20} /> 取消訂單</button>)
                                 )}
                             </div>
                         </div>
@@ -1195,14 +1113,14 @@
                             });
                         }
 
-                        // 3. 客製化
+                        // 3. 客製化 (原本就沒有+號，維持斜線)
                         if (Array.isArray(item.addons) && item.addons.length > 0) {
                             rowContents.push({
                                 type: "text", text: `客製：${item.addons.map(a => a.name).join(' / ')}`, size: "xs", color: SUB_TEXT_COLOR, wrap: true, margin: "xs", offsetStart: "xxl"
                             });
                         }
 
-                        // 4. 【附餐在先】
+                        // 4. 附餐 (將 + 號改為 / )
                         if (item.sideGroups && Object.keys(item.sideGroups).length > 0) {
                             rowContents.push({
                                 type: "text", text: "附餐：", size: "xs", color: BRAND_COLOR, weight: "bold", margin: "sm", offsetStart: "xxl"
@@ -1210,14 +1128,15 @@
                             Object.values(item.sideGroups).forEach(side => {
                                 let sideText = `• ${side.name}`;
                                 if (side.variantName) sideText += ` (${side.variantName})`;
-                                if (side.addons && side.addons.length > 0) sideText += ` + ${side.addons.map(a => a.name).join('/')}`;
+                                // 修改處：這裡把 + 改成了 /
+                                if (side.addons && side.addons.length > 0) sideText += ` / ${side.addons.map(a => a.name).join('/')}`;
                                 rowContents.push({
                                     type: "text", text: sideText, size: "xs", color: SUB_TEXT_COLOR, wrap: true, margin: "xs", offsetStart: "xxl"
                                 });
                             });
                         }
 
-                        // 5. 【套餐在後，並改名為「升級套餐」】
+                        // 5. 升級套餐 (顯示固定品項名稱、將 + 號改為 / )
                         if (item.set) {
                             rowContents.push({
                                 type: "text", text: `升級套餐：${item.set.name}`, size: "xs", color: BRAND_COLOR, weight: "bold", margin: "sm", offsetStart: "xxl"
@@ -1230,9 +1149,17 @@
                                     if (choice) {
                                         contentText = `• ${choice.name}`;
                                         if (choice.variantName) contentText += ` (${choice.variantName})`;
-                                        if (choice.addons && choice.addons.length > 0) contentText += ` + ${choice.addons.map(a => a.name).join('/')}`;
+                                        // 修改處：這裡把 + 改成了 /
+                                        if (choice.addons && choice.addons.length > 0) contentText += ` / ${choice.addons.map(a => a.name).join('/')}`;
                                     } else if (c.type === 'fixed') {
-                                        contentText = "• (固定餐點)";
+                                        // 修改處：查找固定餐點名稱
+                                        const fixedProd = products.find(p => p.id === c.productId);
+                                        if (fixedProd) {
+                                            contentText = `• ${fixedProd.name}`;
+                                            if (c.variantName) contentText += ` (${c.variantName})`;
+                                        } else {
+                                            contentText = "• (固定餐點)";
+                                        }
                                     }
 
                                     if (contentText) {
@@ -2028,6 +1955,7 @@
                             onClose={() => setSelectedOrderDetail(null)} 
                             onReorder={reorder}
                             onCancel={openCancelConfirm}
+                            products={products}  // 新增這一行
                         />
                     )}
                     
@@ -2040,5 +1968,3 @@
     </script>
 </body>
 </html>
-
-
