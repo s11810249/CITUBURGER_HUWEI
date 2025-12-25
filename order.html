@@ -735,6 +735,7 @@
             }, [currentUser]); // Dependency updated to currentUser
 
             useEffect(() => {
+                useEffect(() => {
                 const params = new URLSearchParams(window.location.search);
                 const orderIdFromUrl = params.get('id');
                 
@@ -744,6 +745,12 @@
                         const targetOrder = orderHistory.find(o => o.id === orderIdFromUrl);
                         if (targetOrder) {
                             setSelectedOrderDetail(targetOrder);
+                            
+                            // ★ 關鍵修正：成功開啟訂單後，立刻清除網址上的 ID 參數
+                            // 這樣下次 orderHistory 更新時，就不會因為讀到舊 ID 而再次跳轉
+                            const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+                            window.history.replaceState({path: newUrl}, '', newUrl);
+
                             // 延遲關閉載入，確保詳情頁已準備好
                             setTimeout(() => setIsInitLoading(false), 500);
                             return; 
@@ -1858,7 +1865,7 @@
                                                                     key={ad.id} 
                                                                     // ★ 改用 handleAddonToggle
                                                                     onClick={() => handleAddonToggle(ad, group, selectedAddons, setSelectedAddons)} 
-                                                                    className={`p-3 rounded-xl text-sm font-bold flex justify-between transition-all ${isSelected ? 'bg-[#5B2274] text-white ring-2 ring-[#5B2274] ring-offset-1' : 'bg-white border border-slate-200 text-slate-600'}`}
+                                                                    className={`p-3 rounded-xl text-sm font-bold flex justify-between transition-all ${isSelected ? 'bg-[#5B2274] text-white' : 'bg-white border border-slate-200 text-slate-600'}`}
                                                                 >
                                                                     <span>{ad.name}</span> 
                                                                     {ad.price > 0 && <span className={isSelected ? 'text-white/80' : 'text-[#5B2274]'}>+${ad.price}</span>}
@@ -1994,7 +2001,7 @@
                                                                                     configuringProduct.addons, 
                                                                                     (newAddons) => setConfiguringProduct({...configuringProduct, addons: newAddons})
                                                                                 )} 
-                                                                                className={`p-3 rounded-xl text-sm font-bold flex justify-between transition-all ${isSelected ? 'bg-[#5B2274] text-white ring-2 ring-[#5B2274] ring-offset-1' : 'bg-white border border-slate-200 text-slate-500'}`}
+                                                                                className={`p-3 rounded-xl text-sm font-bold flex justify-between transition-all ${isSelected ? 'bg-[#5B2274] text-white' : 'bg-white border border-slate-200 text-slate-500'}`}
                                                                             >
                                                                                 <span>{ad.name}</span> 
                                                                                 {ad.price > 0 && <span className={isSelected ? 'text-white' : 'text-[#5B2274]'}>+${ad.price}</span>}
@@ -2147,4 +2154,5 @@
     </script>
 </body>
 </html>
+
 
