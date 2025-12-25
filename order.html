@@ -986,35 +986,6 @@
                 return true;
             };
 
-            const validateSelection = () => {
-                if (!selectedItem) return { valid: false, msg: '' };
-                
-                // 1. 規格驗證
-                if (selectedItem.variants?.length > 0 && !selectedVariant) {
-                    return { valid: false, msg: '請選擇規格' };
-                }
-
-                // 2. 客製化驗證 (Addons) - 假設設定檔有 min/max/required
-                // 這裡模擬針對 "groupedItemAddons" 的檢查
-                for (const group of groupedItemAddons) {
-                    // 模擬資料結構：若 group 本身有 isRequired 屬性 (需後端資料配合，這裡預留邏輯)
-                    // 目前範例先檢查：如果有 isRequired 且選取數量為 0
-                    if (group.isRequired) {
-                        const selectedInGroup = selectedAddons.filter(a => group.items.some(gi => gi.id === a.id));
-                        if (selectedInGroup.length === 0) return { valid: false, msg: `請選擇 ${group.name}` };
-                    }
-                    // 檢查數量上限 (如果資料有 max 屬性)
-                    if (group.max > 0) {
-                        const selectedInGroup = selectedAddons.filter(a => group.items.some(gi => gi.id === a.id));
-                        if (selectedInGroup.length > group.max) return { valid: false, msg: `${group.name} 最多選 ${group.max} 項` };
-                    }
-                }
-
-                return { valid: true, msg: '' };
-            };
-            
-            const selectionStatus = validateSelection();
-
             const handleAddToCart = () => {
                 if (!selectedItem) return;
                 let unitPrice = selectedItem.price;
@@ -1395,7 +1366,48 @@
 
             const getGroupedAddons = (targetAddons) => { const groups = {}; targetAddons.forEach(a => { const cat = a.category || '其他'; if (!groups[cat]) groups[cat] = []; groups[cat].push(a); }); const definedGroups = settings.addonGroups || []; const result = definedGroups.map(dg => ({ name: dg.name, items: (groups[dg.name] || []).sort((a,b) => (a.sortOrder||0) - (b.sortOrder||0)) })).filter(g => g.items.length > 0); const definedNames = definedGroups.map(dg => dg.name); Object.keys(groups).forEach(catName => { if (!definedNames.includes(catName)) { result.push({ name: catName, items: groups[catName].sort((a,b) => (a.sortOrder||0) - (b.sortOrder||0)) }); } }); return result; };
             const groupedItemAddons = useMemo(() => { if (!selectedItem || !selectedItem.allowAddons) return []; const validAddons = addons.filter(a => selectedItem.allowAddons.includes(a.id)); return getGroupedAddons(validAddons); }, [selectedItem, addons, settings.addonGroups]);
+
+            // [修正：白屏問題] 必須在 groupedItemAddons 之後才定義驗證邏輯
+            const validateSelection = () => {
+                if (!selectedItem) return { valid: false, msg: '' };
+                
+                // 1. 規格驗證
+                if (selectedItem.variants?.length > 0 && !selectedVariant) {
+                    return { valid: false, msg: '請選擇規格' };
+                }
+
+                // 2. 附餐驗證 (Side Groups) - 強制確認
+                if (selectedItem.sideGroups?.length > 0) {
+                    for (const group of selectedItem.sideGroups) {
+                        if (!selectedSideGroups[group.id]) {
+                            return { valid: false, msg: `請選擇 ${group.title || '附餐'}` };
+                        }
+                    }
+                }
+
+                // 3. 套餐驗證 (Set Choices) - 強制確認
+                if (selectedSet && selectedSet.contents) {
+                    for (let i = 0; i < selectedSet.contents.length; i++) {
+                        const content = selectedSet.contents[i];
+                        if (content.type === 'category' && !selectedSetChoices[i]) {
+                            return { valid: false, msg: `請選擇套餐內的 ${content.label || '品項'}` };
+                        }
+                    }
+                }
+
+                // 4. 客製化驗證 (Addons)
+                for (const group of groupedItemAddons) {
+                    if (group.isRequired) {
+                        const selectedInGroup = selectedAddons.filter(a => group.items.some(gi => gi.id === a.id));
+                        if (selectedInGroup.length === 0) return { valid: false, msg: `請選擇 ${group.name}` };
+                    }
+                }
+
+                return { valid: true, msg: '' };
+            };
             
+            const selectionStatus = validateSelection();
+
             const ProductCard = ({ item }) => {
                 const availability = checkAvailability(item);
                 const isSoldOut = availability === 'all_out';
@@ -1460,7 +1472,8 @@
                         </div>
                     )}
 
-                    <div className="flex flex-1 overflow-hidden bg-white mt-1 pb-20 relative">
+                    {/* [修正：主區域 pb-32] 確保不被底部擋住 */}
+                    <div className="flex flex-1 overflow-hidden bg-white mt-1 pb-32 relative">
                         {currentView === 'menu' && (
                             <>
                                 <nav className="w-24 bg-slate-50 border-r border-slate-100 overflow-y-auto no-scrollbar shrink-0 pt-2 pb-24">
@@ -1572,7 +1585,8 @@
                         )}
                     </div>
 
-                    <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around items-start pt-3 h-[calc(60px+env(safe-area-inset-bottom))] z-50 shadow-[0_-5px_15px_rgba(0,0,0,0.05)] safe-area-bottom">
+                    {/* [修正：底部高度與安全區域] 使用 h-75 並居中對齊 */}
+                    <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around items-center h-[calc(75px+env(safe-area-inset-bottom))] z-50 shadow-[0_-5px_25px_rgba(0,0,0,0.08)] pb-[env(safe-area-inset-bottom)]">
                         <button onClick={() => setCurrentView('menu')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'menu' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="utensils" size={20} /><span className="text-[10px] font-bold">菜單</span></button>
                         <button onClick={() => setCurrentView('favorites')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'favorites' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="heart" size={20} className={currentView === 'favorites' ? 'fill-current' : ''} /><span className="text-[10px] font-bold">收藏</span></button>
                         <button onClick={() => setCurrentView('coupons')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'coupons' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="ticket" size={20} /><span className="text-[10px] font-bold">優惠券</span></button>
@@ -1711,9 +1725,9 @@
                                     <div className="absolute bottom-0 left-0 right-0 p-4 bg-white border-t border-slate-100 flex items-center gap-4 z-20">
                                         <div className="flex items-center gap-3 bg-slate-100 rounded-xl px-3 py-2"><button onClick={() => setItemCount(Math.max(1, itemCount-1))} className="w-8 h-8 flex items-center justify-center bg-white rounded-lg shadow-sm active:scale-95 text-slate-600"><Icon name="minus" size={16} /></button><span className="font-black text-lg w-6 text-center">{itemCount}</span><button onClick={() => setItemCount(itemCount+1)} className="w-8 h-8 flex items-center justify-center bg-[#5B2274] text-white rounded-lg shadow-sm active:scale-95"><Icon name="plus" size={16} /></button></div>
                                         <button 
-                                            onClick={handleAddToCart} 
-                                            disabled={!selectionStatus.valid} 
-                                            className={`flex-1 py-3.5 rounded-xl font-black text-white shadow-lg flex justify-between px-6 items-center transition-all 
+                                            onClick={handleAddToCart}
+                                            disabled={!selectionStatus.valid}
+                                            className={`flex-1 py-4 rounded-xl font-black text-white shadow-lg flex justify-between px-6 items-center transition-all 
                                                 ${!selectionStatus.valid ? 'bg-slate-300 cursor-not-allowed' : 'bg-[#5B2274] hover:bg-[#4a1b5e] active:scale-95'}`}
                                         >
                                             <span>
