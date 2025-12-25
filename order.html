@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>線上點餐 | 城市漢堡 虎尾光復店</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -17,14 +17,29 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
         
-        body { 
+        html, body { 
+            height: 100%;          /* 強制高度為 100% */
+            width: 100%;
+            overflow: hidden;      /* 禁止外部捲動，這會阻止網址列收縮 */
+            position: fixed;       /* 在 iOS 上這招最有效，完全鎖死背景 */
+            
             font-family: 'Plus Jakarta Sans', 'Noto Sans TC', sans-serif; 
             background-color: #F8F9FA; 
             color: #1E293B; 
             letter-spacing: 0px !important; 
             -webkit-tap-highlight-color: transparent;
         }
+        
+        #root {
+            height: 100%;          /* 讓 React 根容器也填滿 */
+            width: 100%;
+        }
 
+        
+        section {
+            scroll-margin-top: 20px; /* 點擊左側選單時，右側標題上方會預留 20px 空間 */
+        }
+        
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
@@ -109,13 +124,15 @@
         .splash-screen {
             position: fixed;
             inset: 0;
-            background-color: #5B2274;
+            background-color: #ffffff; /* 改成白色 */
+            color: #5B2274;            /* 文字改成紫色，不然會看不見 */
             z-index: 9999;
             display: flex;
             align-items: center;
             justify-content: center;
             flex-direction: column;
-            color: white;
+            /* 為了保險起見，可以加入這一行讓背景延伸到底部安全區 */
+            padding-bottom: env(safe-area-inset-bottom);
         }
 
     </style>
@@ -357,7 +374,6 @@
             const todayStr = new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei", year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
             const isFuture = order.userInfo.pickupDate > todayStr;
 
-            // --- 視覺配置表 (對應你提供的模板) ---
             const getStatusConfig = () => {
                 switch (order.status) {
                     case 'cancelled':
@@ -384,7 +400,7 @@
             };
 
             return (
-                <div className="fixed inset-0 bg-[#F3F4F6] z-[100] flex flex-col animate-fade-in overflow-hidden">
+                <div className="fixed inset-0 bg-white z-[100] flex flex-col animate-fade-in overflow-hidden">
                     {/* [導航欄] */}
                     <nav className="bg-white shadow-sm shrink-0">
                         <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-between">
@@ -399,7 +415,7 @@
                     <div className="flex-1 overflow-y-auto no-scrollbar">
                         <div className="max-w-md mx-auto pb-10">
                             
-                            {/* [區塊 1] 狀態展示 (動態變更區域) */}
+                            {/* [區塊 1] 狀態展示 + 【修改點3：預計取餐時間移至此處】 */}
                             <div className="bg-white p-6 mb-2 rounded-b-3xl shadow-sm relative overflow-hidden text-center">
                                 <div className="absolute -top-10 -right-10 w-32 h-32 bg-purple-50 rounded-full opacity-50"></div>
                                 
@@ -408,7 +424,15 @@
                                 </div>
 
                                 <h2 className={`text-2xl font-bold mb-1 ${order.status === 'cancelled' ? 'text-red-600' : 'text-gray-800'}`}>{config.title}</h2>
-                                <p className="text-gray-500 text-sm mb-6 px-4">{config.desc}</p>
+                                <p className="text-gray-500 text-sm mb-3 px-4">{config.desc}</p>
+
+                                {/* ★ 新增：預計取餐時間 (膠囊樣式) */}
+                                <div className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-100 px-3 py-1 rounded-full mb-6 shadow-sm">
+                                    <Icon name="Clock" size={12} className="text-slate-400" />
+                                    <span className="text-xs font-bold text-slate-600">
+                                        預計取餐：{order.userInfo.pickupDate.replace(/-/g, '/')} {order.userInfo.pickupTime}
+                                    </span>
+                                </div>
 
                                 {/* 進度條 */}
                                 <div className="w-full bg-gray-200 rounded-full h-2.5 mb-2 overflow-hidden">
@@ -424,7 +448,7 @@
                                 )}
                             </div>
 
-                            {/* [區塊 2] 店家資訊卡 */}
+                            {/* [區塊 2] 店家資訊卡 + 【修改點2：下單時間移至此處】 */}
                             <div className="mx-4 mt-4 bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex justify-between items-center">
                                 <div className="flex items-center gap-3">
                                     <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400">
@@ -433,6 +457,8 @@
                                     <div>
                                         <h3 className="font-bold text-gray-800 text-sm">城市漢堡 虎尾光復店</h3>
                                         <p className="text-xs text-gray-500">訂單編號 #{order.orderId}</p>
+                                        {/* ★ 新增：下單時間 */}
+                                        <p className="text-[10px] text-gray-400 mt-0.5 font-medium">下單時間：{formatTime(order.createdAt)}</p>
                                     </div>
                                 </div>
                                 <a href={`tel:${window.settings?.phone || '056323111'}`} className="w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center text-[#5B2274]">
@@ -507,13 +533,8 @@
                                     )
                                 )}
                             </div>
-
-                            {/* 時間資訊 */}
-                            <div className="text-center mt-8 space-y-1">
-                                <p className="text-[10px] font-bold text-gray-300 uppercase tracking-widest">Order Details</p>
-                                <p className="text-[11px] font-bold text-gray-400">下單時間：{formatTime(order.createdAt)}</p>
-                                <p className="text-[11px] font-bold text-gray-400 mb-10">預計取餐：{order.userInfo.pickupDate.replace(/-/g,'/')} {order.userInfo.pickupTime}</p>
-                            </div>
+                            
+                            {/* 【修改點1】：已完全移除底部的 Order Details 區塊 */}
                         </div>
                     </div>
                 </div>
@@ -732,7 +753,6 @@
             }, [currentUser]); // Dependency updated to currentUser
 
             useEffect(() => {
-                useEffect(() => {
                 const params = new URLSearchParams(window.location.search);
                 const orderIdFromUrl = params.get('id');
                 
@@ -1363,7 +1383,43 @@
 
             const getCartItemQty = (prodId) => cart.filter(item => item.productId === prodId).reduce((sum, item) => sum + item.qty, 0);
             
-            useEffect(() => { if (currentView !== 'menu') return; const observer = new IntersectionObserver((entries) => { if (isClickScroll.current) return; const visibleSection = entries.find(entry => entry.isIntersecting); if (visibleSection) setActiveCategory(visibleSection.target.id); }, { root: menuRef.current, rootMargin: '-10% 0px -80% 0px', threshold: 0 }); categories.forEach(cat => { if (categoryRefs.current[cat.id]) observer.observe(categoryRefs.current[cat.id]); }); return () => observer.disconnect(); }, [categories, currentView]);
+            useEffect(() => {
+                if (currentView !== 'menu' || !menuRef.current) return;
+
+                const observer = new IntersectionObserver(
+                    (entries) => {
+                        // 如果是用點擊的，就不要觸發偵測 (避免亂跳)
+                        if (isClickScroll.current) return;
+
+                        // 找出所有正在「掃描線」範圍內的區塊
+                        const visibleEntries = entries.filter(entry => entry.isIntersecting);
+                        
+                        // 如果有區塊進入範圍
+                        if (visibleEntries.length > 0) {
+                            // 通常抓第一個進入的就會是正確的
+                            // 或者你可以稍微比較一下誰的 intersectionRatio 比較大
+                            // 但在這個設定下，直接取最後一個進入的通常最準確
+                            const target = visibleEntries[visibleEntries.length - 1];
+                            setActiveCategory(target.target.id);
+                        }
+                    }, 
+                    { 
+                        root: menuRef.current,
+                        // ★ 關鍵修改：創造一個位於頂部的「掃描線」
+                        // 上方扣掉 5% (給一點緩衝)，下方扣掉 80% (完全忽略下方內容)
+                        // 這樣焦點會完全集中在螢幕最上方
+                        rootMargin: '-5% 0px -80% 0px',
+                        threshold: 0
+                    }
+                );
+
+                categories.forEach(cat => {
+                    const el = categoryRefs.current[cat.id];
+                    if (el) observer.observe(el);
+                });
+
+                return () => observer.disconnect();
+            }, [categories, currentView]);
 
             const getGroupedAddons = (targetAddons) => { const groups = {}; targetAddons.forEach(a => { const cat = a.category || '其他'; if (!groups[cat]) groups[cat] = []; groups[cat].push(a); }); const definedGroups = settings.addonGroups || []; const result = definedGroups.map(dg => ({ name: dg.name, items: (groups[dg.name] || []).sort((a,b) => (a.sortOrder||0) - (b.sortOrder||0)) })).filter(g => g.items.length > 0); const definedNames = definedGroups.map(dg => dg.name); Object.keys(groups).forEach(catName => { if (!definedNames.includes(catName)) { result.push({ name: catName, items: groups[catName].sort((a,b) => (a.sortOrder||0) - (b.sortOrder||0)) }); } }); return result; };
             const groupedItemAddons = useMemo(() => { if (!selectedItem || !selectedItem.allowAddons) return []; const validAddons = addons.filter(a => selectedItem.allowAddons.includes(a.id)); return getGroupedAddons(validAddons); }, [selectedItem, addons, settings.addonGroups]);
@@ -1394,8 +1450,9 @@
             if (isInitLoading) {
                 return (
                     <div className="splash-screen">
-                        <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center mb-4 shadow-xl">
-                            <Icon name="Utensils" size={40} className="text-[#5B2274]" />
+                        {/* 背景改成紫色 bg-[#5B2274]，圖示改成白色 text-white */}
+                        <div className="w-20 h-20 bg-[#5B2274] rounded-2xl flex items-center justify-center mb-4 shadow-xl">
+                            <Icon name="Utensils" size={40} className="text-white" />
                         </div>
                         <h1 className="text-2xl font-black tracking-widest animate-pulse">CITY BURGER</h1>
                     </div>
@@ -1436,7 +1493,7 @@
             const selectionStatus = validateSelection();
                 
             return (
-                <div className="h-screen flex flex-col overflow-hidden bg-[#F8F9FA]">
+                <div className="h-full flex flex-col overflow-hidden bg-[#F8F9FA]">
                     <header className="shrink-0 relative z-30 header-curve shadow-xl" style={{ backgroundColor: BRAND_COLOR }}>
                         <div className="px-6 pt-8 pb-10 space-y-5">
                             <div className="flex justify-between items-center">
@@ -1468,10 +1525,10 @@
                     )}
 
                     {/* [修正：主區域 pb-32] 確保不被底部擋住 */}
-                    <div className="flex flex-1 overflow-hidden bg-white mt-1 pb-24 relative">
+                    <div className="flex flex-1 overflow-hidden bg-white mt-1 relative">
                         {currentView === 'menu' && (
                             <>
-                                <nav className="w-24 bg-slate-50 border-r border-slate-100 overflow-y-auto no-scrollbar shrink-0 pt-2 pb-24">
+                                <nav className="w-24 bg-slate-50 border-r border-slate-100 overflow-y-auto no-scrollbar shrink-0 pt-2 pb-36">
                                     {filteredMenu.map(cat => (
                                         <button key={cat.id} onClick={() => { isClickScroll.current = true; setActiveCategory(cat.id); categoryRefs.current[cat.id]?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setTimeout(() => isClickScroll.current = false, 800); }} className={`w-full py-5 px-1 text-[13px] font-black text-center relative transition-all duration-300 flex flex-col items-center gap-1.5 ${activeCategory === cat.id ? 'text-[#5B2274] bg-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>
                                             {activeCategory === cat.id && <div className="absolute left-0 top-1/2 -translate-y-1/2 h-8 w-1.5 rounded-r-full" style={{ backgroundColor: BRAND_COLOR }}></div>}
@@ -1479,7 +1536,7 @@
                                         </button>
                                     ))}
                                 </nav>
-                                <main ref={menuRef} className="flex-1 overflow-y-auto p-5 no-scrollbar scroll-smooth bg-white pb-32">
+                                <main ref={menuRef} className="flex-1 overflow-y-auto p-5 no-scrollbar scroll-smooth bg-white pb-36">
                                     {filteredMenu.map(cat => (
                                         <section key={cat.id} id={cat.id} ref={el => categoryRefs.current[cat.id] = el} className="mb-10">
                                             <div className="flex items-center gap-3 mb-6"><span className="text-lg font-[900] tracking-tight text-slate-800">{cat.name}</span><div className="h-1 w-1 bg-slate-200 rounded-full"></div><div className="h-[1px] bg-slate-100 flex-1"></div></div>
@@ -1492,7 +1549,7 @@
                             </>
                         )}
                         {currentView === 'favorites' && (
-                            <div className="flex-1 overflow-y-auto p-5 pb-32 no-scrollbar">
+                            <div className="flex-1 overflow-y-auto p-5 pb-36 no-scrollbar">
                                 <h2 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2"><Icon name="heart" className="text-red-500 fill-red-500" /> 我的收藏</h2>
                                 {favorites.length === 0 ? <div className="text-center text-slate-400 mt-20">還沒有收藏任何餐點喔</div> : (
                                     <div className="space-y-8">
@@ -1511,7 +1568,7 @@
                             </div>
                         )}
                         {currentView === 'coupons' && (
-                            <div className="flex-1 overflow-y-auto p-5 pb-32">
+                            <div className="flex-1 overflow-y-auto p-5 pb-36">
                                 <h2 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2"><Icon name="ticket" className="text-slate-600" /> 優惠券</h2>
                                 <div className="flex gap-2 mb-6">
                                     <input type="text" placeholder="輸入優惠代碼" className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-[#5B2274]" value={couponInput} onChange={e => setCouponInput(e.target.value)} />
@@ -1530,7 +1587,7 @@
                             </div>
                         )}
                         {currentView === 'history' && (
-                            <div className="flex-1 overflow-y-auto p-5 pb-32 no-scrollbar">
+                            <div className="flex-1 overflow-y-auto p-5 pb-36 no-scrollbar">
                                 <h2 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2"><Icon name="history" className="text-slate-600" /> 訂單紀錄</h2>
                                 
                                 {orderHistory.length === 0 ? (
@@ -1580,13 +1637,15 @@
                         )}
                     </div>
 
-                    {/* [修正：底部高度與安全區域] 使用 h-75 並居中對齊 */}
-                    <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around items-center h-[calc(70px+env(safe-area-inset-bottom))] z-50 shadow-[0_-8px_20px_rgba(0,0,0,0.05)] pb-[env(safe-area-inset-bottom)]">
-                        <button onClick={() => setCurrentView('menu')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'menu' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="utensils" size={20} /><span className="text-[10px] font-bold">菜單</span></button>
-                        <button onClick={() => setCurrentView('favorites')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'favorites' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="heart" size={20} className={currentView === 'favorites' ? 'fill-current' : ''} /><span className="text-[10px] font-bold">收藏</span></button>
-                        <button onClick={() => setCurrentView('coupons')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'coupons' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="ticket" size={20} /><span className="text-[10px] font-bold">優惠券</span></button>
-                        <button onClick={() => setCurrentView('history')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'history' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="history" size={20} /><span className="text-[10px] font-bold">紀錄</span></button>
-                    </div>
+                    {/* 確保載入完成後才顯示底部選單 */}
+                    {(!isInitLoading && !selectedOrderDetail) && (
+                        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around items-center z-50 shadow-[0_-8px_20px_rgba(0,0,0,0.05)] pt-2 pb-[env(safe-area-inset-bottom)] animate-slide-up">
+                            <button onClick={() => setCurrentView('menu')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'menu' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="utensils" size={20} /><span className="text-[10px] font-bold">菜單</span></button>
+                            <button onClick={() => setCurrentView('favorites')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'favorites' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="heart" size={20} className={currentView === 'favorites' ? 'fill-current' : ''} /><span className="text-[10px] font-bold">收藏</span></button>
+                            <button onClick={() => setCurrentView('coupons')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'coupons' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="ticket" size={20} /><span className="text-[10px] font-bold">優惠券</span></button>
+                            <button onClick={() => setCurrentView('history')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'history' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="history" size={20} /><span className="text-[10px] font-bold">紀錄</span></button>
+                        </div>
+                    )}
 
                     {cart.length > 0 && currentView === 'menu' && (
                         <div className="fixed bottom-20 left-4 right-4 z-40 animate-bounce-subtle">
@@ -1692,14 +1751,14 @@
                                                     let setImg = getOptimizedImage(s.image, 200) || 'https://placehold.co/100x100?text=Set';
                                                     if (!s.image) { const fixedItem = s.contents?.find(c => c.type === 'fixed'); if (fixedItem) { const p = products.find(prod => prod.id === fixedItem.productId); if (p && p.image) setImg = getOptimizedImage(p.image, 200); } }
                                                     return (
-                                                        <div key={setId} onClick={() => { if(isSelected) { setSelectedSet(null); setExpandedSetId(null); setSelectedSetChoices({}); } else { setSelectedSet(s); setExpandedSetId(setID); setSelectedSetChoices({}); } }} className={`rounded-2xl border shadow-sm overflow-hidden transition-all cursor-pointer ${isSelected ? 'border-[#5B2274] ring-2 ring-[#5B2274]' : 'border-slate-100 bg-white'}`}>
+                                                        <div key={setId} onClick={() => { if(isSelected) { setSelectedSet(null); setExpandedSetId(null); setSelectedSetChoices({}); } else { setSelectedSet(s); setExpandedSetId(setId); setSelectedSetChoices({}); } }} className={`rounded-2xl border shadow-sm overflow-hidden transition-all cursor-pointer ${isSelected ? 'border-[#5B2274] ring-2 ring-[#5B2274]' : 'border-slate-100 bg-white'}`}>
                                                             <div className={`flex gap-3 p-3 items-center ${isSelected ? 'bg-purple-50' : 'bg-white'}`}><div className="w-16 h-16 rounded-xl bg-slate-100 border border-slate-100 overflow-hidden shrink-0 aspect-square"><img src={setImg} className="w-full h-full object-cover" /></div><div className="flex-1 min-w-0"><div className="flex justify-between items-center"><p className="text-sm font-bold text-slate-800 truncate">{s.name}</p><span className="text-sm font-black text-[#5B2274]">+${s.price}</span></div><div className="flex justify-between items-center mt-1"><span className="text-[10px] text-slate-400 font-bold">查看內容</span><div className={`w-5 h-5 rounded-full border flex items-center justify-center ${isSelected ? 'bg-[#5B2274] border-[#5B2274]' : 'border-slate-300'}`}>{isSelected && <Icon name="check" size={12} className="text-white" />}</div></div></div></div>
                                                             {isExpanded && (
                                                                 <div className="p-3 pt-0 border-t border-slate-100 animate-fade-in" onClick={e => e.stopPropagation()}>
                                                                     <div className="space-y-3 mt-2">{s.contents?.map((content, idx) => {
                                                                         let contentImg = 'https://placehold.co/100x100?text=Item', contentName = content.label, contentSub = "", isChangeable = content.allowChange !== false, targetCatName = '', priceDiff = 0, defPrice = 0;
                                                                         if (content.type === 'category' && content.defaultProductId) { const defProd = products.find(p => p.id === content.defaultProductId); defPrice = defProd ? defProd.price : 0; if (defProd && content.defaultVariantName) { const dv = defProd.variants?.find(v => v.name === content.defaultVariantName); if (dv) defPrice = dv.price; } }
-                                                                        const choice = selectedSetChoices[idx];
+                                                                        const choice = (content.type === 'category') ? selectedSetChoices[idx] : null;
                                                                         if (choice && isSelected) { const p = products.find(p => p.id === choice.id); if (p && p.image) contentImg = getOptimizedImage(p.image, 200); contentName = choice.name; contentSub = choice.variantName ? `(${choice.variantName})` : ''; priceDiff = choice.price - defPrice; }
                                                                         else { if (content.type === 'fixed') { const p = products.find(prod => prod.id === content.productId); if (p) { contentImg = getOptimizedImage(p.image, 200); contentName = p.name; if (content.variantName) contentSub = content.variantName; } isChangeable = false; } else if (content.type === 'category') { const cat = categories.find(c => c.id === content.categoryId), defP = products.find(p => p.id === content.defaultProductId); if (defP) { contentImg = getOptimizedImage(defP.image, 200); contentName = content.label; contentSub = defP.name; if (content.defaultVariantName) contentSub += ` (${content.defaultVariantName})`; } if (cat) targetCatName = cat.name; } }
                                                                         return (<div key={idx} className={`flex gap-3 p-3 rounded-2xl border shadow-sm items-center transition-all ${content.type === 'category' && content.allowChange ? 'cursor-pointer active:scale-98 border-purple-100 hover:border-purple-300' : 'bg-white border-slate-200'}`} onClick={() => { if (content.type === 'category' && content.allowChange && isSelected) handleOpenSelection('set', idx, content.categoryId, defPrice); }}><div className="w-14 h-14 rounded-xl bg-slate-50 border border-slate-100 overflow-hidden shrink-0 aspect-square"><img src={contentImg} className="w-full h-full object-cover" /></div><div className="flex-1 min-w-0 space-y-1"><p className="text-sm font-bold text-slate-800 truncate">{contentName} <span className="text-sm text-slate-500 font-bold">{contentSub}</span> {priceDiff !== 0 && <span className={`text-sm font-bold ml-1 ${priceDiff > 0 ? 'text-red-500' : 'text-green-500'}`}>{priceDiff > 0 ? `+$${priceDiff}` : `-$${Math.abs(priceDiff)}`}</span>}</p>{content.type === 'category' && isChangeable ? (<div className="flex items-center justify-between"><div className="flex items-center gap-1.5 text-[#5B2274]"><Icon name="check-circle-2" size={14} className="fill-[#5B2274] text-white" /><span className="text-[11px] font-bold">可更換同類別商品</span></div>{isSelected && <button className="text-[10px] bg-purple-50 text-[#5B2274] px-2 py-0.5 rounded border border-purple-100 font-bold">更換</button>}</div>) : !isChangeable && (<div className="flex items-center gap-1.5 text-slate-400"><Icon name="lock" size={14} /><span className="text-[11px] font-bold">固定品項，不可更換</span></div>)}</div></div>);
@@ -1895,4 +1954,3 @@
     </script>
 </body>
 </html>
-
