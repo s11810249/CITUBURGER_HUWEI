@@ -131,48 +131,6 @@
     <script type="text/babel">
         const { useState, useEffect, useRef, useMemo } = React;
 
-        // [新增] 台灣日期工具與 KDS 核心邏輯
-        const getTaiwanDate = () => new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
-        const getTaiwanDateStr = (dateObj = getTaiwanDate()) => {
-            return dateObj.getFullYear() + '-' + String(dateObj.getMonth() + 1).padStart(2, '0') + '-' + String(dateObj.getDate()).padStart(2, '0');
-        };
-
-        // 計算剩餘分鐘數
-        const getMinutesRemaining = (pickupDate, pickupTime) => {
-            if (!pickupDate || !pickupTime) return 999;
-            if (pickupTime === 'ASAP') return 0;
-            
-            const now = getTaiwanDate();
-            const [h, m] = pickupTime.split(':').map(Number);
-            const target = new Date(pickupDate);
-            target.setHours(h, m, 0, 0);
-            
-            // 如果是跨日單，這裡簡化處理，實際建議加上日期比對
-            if (pickupDate > getTaiwanDateStr()) return 999; 
-
-            const diffMs = target - now;
-            return Math.floor(diffMs / 60000);
-        };
-
-        // 取得 KDS 顏色狀態
-        const getKDSState = (mins) => {
-            if (mins < 0) return { color: 'bg-slate-800 text-white border-slate-700', label: '已逾時', icon: 'AlertTriangle', animate: '' };
-            if (mins <= 5) return { color: 'bg-red-500 text-white border-red-600', label: '極緊急', icon: 'Flame', animate: 'animate-pulse' };
-            if (mins <= 10) return { color: 'bg-amber-400 text-white border-amber-500', label: '需注意', icon: 'Zap', animate: '' };
-            if (mins <= 15) return { color: 'bg-emerald-500 text-white border-emerald-600', label: '準備中', icon: 'ChefHat', animate: '' };
-            return { color: 'bg-white text-slate-600 border-slate-200', label: '排程中', icon: 'Clock', animate: '' };
-        };
-
-        // [修改] 完整狀態定義 (對應前台邏輯)
-        const STATUS_MAP = {
-            'pending':   { label: '待處理', bg: 'bg-white', text: 'text-slate-600', icon: 'Inbox' },
-            'confirmed': { label: '已接單', bg: 'bg-blue-50', text: 'text-blue-600', icon: 'ClipboardCheck' },
-            'preparing': { label: '製作中', bg: 'bg-orange-50', text: 'text-orange-600', icon: 'Flame' },
-            'ready':     { label: '待取餐', bg: 'bg-emerald-50', text: 'text-emerald-600', icon: 'ShoppingBag' },
-            'completed': { label: '已結案', bg: 'bg-slate-100', text: 'text-slate-400', icon: 'CheckCircle' },
-            'cancelled': { label: '已取消', bg: 'bg-red-50', text: 'text-red-400', icon: 'XCircle' }
-        };
-
         const Icon = ({ name, size = 18, className = "" }) => {
             const [iconData, setIconData] = useState(null);
             useEffect(() => {
@@ -669,308 +627,238 @@
                         <div className="max-w-6xl lg:max-w-7xl mx-auto px-6 lg:px-10 py-8 space-y-6 pb-24">
                             
                             {/* Order Management Tab */}
-                            {/* Order Management Tab (KDS 3.0 Ultimate) */}
                             {activeTab === 'orders' && (() => {
-                                // 1. 初始化與資料分流
-                                const [subTab, setSubTab] = useState('kds'); // 'kds', 'history', 'stats'
-                                const [historyDate, setHistoryDate] = useState(getTaiwanDateStr());
-                                
+                                // 1. 訂單分類邏輯
                                 const todayStr = getTaiwanDateStr();
-                                const activeOrders = []; // KDS 用 (今日未結案 + 未來單)
-                                const historyOrders = []; // 歷史查詢用
-                                const statsOrders = [];   // 統計用 (全部)
+                                const todayOrders = [];
+                                const futureOrders = [];
+                                const historyOrders = [];
 
                                 orders.forEach(o => {
-                                    statsOrders.push(o);
-                                    
+                                    const pDate = o.userInfo?.pickupDate || '1970-01-01';
                                     const isDone = ['completed', 'cancelled'].includes(o.status);
-                                    const pDate = o.userInfo?.pickupDate || '';
-
-                                    // KDS 邏輯：只要是「未完成」的單，都顯示在看板
-                                    // 若是未來日期的單，也顯示，但排在後面
-                                    if (!isDone) {
-                                        activeOrders.push(o);
-                                    }
-
-                                    // 歷史邏輯：根據選擇的日期過濾 (包含該日已完成與取消的)
-                                    if (pDate === historyDate && isDone) {
+                                    
+                                    if (isDone) {
+                                        historyOrders.push(o);
+                                    } else if (pDate === todayStr) {
+                                        todayOrders.push(o);
+                                    } else if (pDate > todayStr) {
+                                        futureOrders.push(o);
+                                    } else {
+                                        // 日期已過但未結案 (視為歷史或過期)
                                         historyOrders.push(o);
                                     }
                                 });
 
-                                // 2. KDS 排序邏輯 (Pickup Time 優先)
-                                activeOrders.sort((a, b) => {
-                                    const dateA = a.userInfo?.pickupDate || '9999-99-99';
-                                    const dateB = b.userInfo?.pickupDate || '9999-99-99';
-                                    if (dateA !== dateB) return dateA.localeCompare(dateB); // 先比日期
+                                // 根據選擇的過濾器決定顯示哪一組
+                                // filter 變數現在用來當作 Tabs: 'today', 'future', 'history'
+                                // 如果是第一次載入 (default 'all')，我們強制設為 'today'
+                                const currentTab = ['today', 'future', 'history'].includes(orderFilter) ? orderFilter : 'today';
+                                const displayOrders = currentTab === 'today' ? todayOrders : (currentTab === 'future' ? futureOrders : historyOrders);
 
-                                    const timeA = a.userInfo?.pickupTime === 'ASAP' ? '00:00' : (a.userInfo?.pickupTime || '23:59');
-                                    const timeB = b.userInfo?.pickupTime === 'ASAP' ? '00:00' : (b.userInfo?.pickupTime || '23:59');
-                                    return timeA.localeCompare(timeB); // 再比時間
+                                // 排序：今日與未來按取餐時間 (早->晚)，歷史按建立時間 (新->舊)
+                                displayOrders.sort((a, b) => {
+                                    if (currentTab === 'history') return new Date(b.createdAt) - new Date(a.createdAt);
+                                    // 按取餐時間排序
+                                    const dateA = a.userInfo?.pickupDate || '';
+                                    const timeA = a.userInfo?.pickupTime || '';
+                                    const dateB = b.userInfo?.pickupDate || '';
+                                    const timeB = b.userInfo?.pickupTime || '';
+                                    return (dateA + timeA).localeCompare(dateB + timeB);
                                 });
 
-                                // 3. 尖峰負荷預警 (Peak Load)
-                                // 簡單演算法：計算接下來 15 分鐘內的訂單量
-                                const next15MinCount = activeOrders.filter(o => {
-                                    const mins = getMinutesRemaining(o.userInfo?.pickupDate, o.userInfo?.pickupTime);
-                                    return mins >= 0 && mins <= 15;
-                                }).length;
-                                const isPeakLoad = next15MinCount >= 5; // 設定閾值為 5 單
-
-                                // 4. 統計數據計算 (Stats)
-                                const calculateStats = () => {
-                                    const targetOrders = orders.filter(o => o.userInfo?.pickupDate === historyDate && o.status === 'completed');
-                                    const totalRevenue = targetOrders.reduce((sum, o) => sum + o.totalPrice, 0);
-                                    const totalDiscount = targetOrders.reduce((sum, o) => sum + (o.discountAmount || 0), 0);
-                                    const loyaltyCost = targetOrders.filter(o => o.discountApplied === 'loyalty').reduce((sum, o) => sum + (o.discountAmount || 0), 0);
-                                    const couponCost = totalDiscount - loyaltyCost;
-                                    
-                                    // 支付方式佔比 (目前資料結構無 paymentMethod，暫以假資料結構演示，若未來有欄位可直接套用)
-                                    // 假設: userInfo.contactMethod 可視為來源 (LINE/Phone)
-                                    const sourceStats = { line: 0, phone: 0 };
-                                    targetOrders.forEach(o => {
-                                        const method = o.userInfo?.contactMethod || 'unknown';
-                                        if (sourceStats[method] !== undefined) sourceStats[method] += o.totalPrice;
-                                    });
-
-                                    return { totalRevenue, totalDiscount, loyaltyCost, couponCost, count: targetOrders.length, sourceStats };
-                                };
-                                const stats = calculateStats();
-
                                 return (
-                                    <div className="animate-fade-in space-y-6">
-                                        {/* Top Navigation & Alert Bar */}
-                                        <div className="flex flex-col gap-4">
-                                            <div className="flex justify-between items-center bg-white p-2 rounded-2xl shadow-sm border border-slate-100">
-                                                <div className="flex p-1 bg-slate-100 rounded-xl">
-                                                    {[{id:'kds', label:'KDS 看板', icon:'Monitor'}, {id:'history', label:'歷史查詢', icon:'Search'}, {id:'stats', label:'營運報表', icon:'BarChart3'}].map(t => (
-                                                        <button key={t.id} onClick={() => setSubTab(t.id)} className={`flex items-center gap-2 px-6 py-3 rounded-lg font-[900] text-sm transition-all ${subTab === t.id ? 'bg-white text-[#5B2274] shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>
-                                                            <Icon name={t.icon} size={18} /> {t.label}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                                {/* 歷史日期選擇器 */}
-                                                {(subTab === 'history' || subTab === 'stats') && (
-                                                    <div className="flex items-center gap-2 px-4">
-                                                        <span className="text-xs font-bold text-slate-400">選擇日期:</span>
-                                                        <input type="date" value={historyDate} onChange={e => setHistoryDate(e.target.value)} className="input-compact py-2 px-3 rounded-lg font-bold bg-slate-50 border-slate-200" />
-                                                    </div>
-                                                )}
+                                    <div className="animate-fade-in space-y-5">
+                                        <div className="flex justify-between items-center">
+                                            <h2 className="text-2xl font-[900] text-slate-800 tracking-tight">訂單管理</h2>
+                                            <div className="text-sm font-bold text-slate-500">
+                                                {currentTab === 'today' ? `今日需處理: ${todayOrders.length} 單` : 
+                                                 currentTab === 'future' ? `未來預約: ${futureOrders.length} 單` : 
+                                                 `歷史總計: ${historyOrders.length} 單`}
                                             </div>
+                                        </div>
+                                        
+                                        {/* [修改 3] 新的分頁切換按鈕 (今日 / 未來 / 歷史) */}
+                                        <div className="flex bg-slate-100 p-1 rounded-xl gap-1 overflow-x-auto no-scrollbar">
+                                            {[
+                                                {id: 'today', label: '今日訂單', count: todayOrders.length, icon: 'ChefHat'},
+                                                {id: 'future', label: '未來訂單', count: futureOrders.length, icon: 'CalendarClock'},
+                                                {id: 'history', label: '歷史訂單', count: historyOrders.length, icon: 'Archive'}
+                                            ].map(f => (
+                                                <button key={f.id} onClick={() => setOrderFilter(f.id)} className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${currentTab === f.id ? 'bg-white text-[#5B2274] shadow-sm ring-1 ring-black/5' : 'text-slate-400 hover:text-slate-600'}`}>
+                                                    <Icon name={f.icon} size={16} />
+                                                    <span>{f.label}</span>
+                                                    <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${currentTab === f.id ? 'bg-purple-100' : 'bg-slate-200'}`}>{f.count}</span>
+                                                </button>
+                                            ))}
+                                        </div>
 
-                                            {/* 尖峰預警條 */}
-                                            {subTab === 'kds' && isPeakLoad && (
-                                                <div className="bg-red-500 text-white px-6 py-3 rounded-xl shadow-lg shadow-red-200 flex items-center justify-between animate-pulse">
-                                                    <div className="flex items-center gap-3 font-[900]">
-                                                        <Icon name="Flame" size={24} />
-                                                        <span>尖峰負荷警告！目前 15 分鐘內有 {next15MinCount} 張單需製作，請加快手腳！</span>
+                                        <div className="space-y-4">
+                                            {displayOrders.map(order => (
+                                                <div key={order.id} className={`glass-panel p-5 rounded-2xl flex flex-col lg:flex-row gap-6 transition-all border-l-4 ${order.status === 'pending' ? 'border-l-slate-300 shadow-md' : (order.status === 'confirmed' ? 'border-l-blue-500 shadow-md' : (order.status === 'ready' ? 'border-l-emerald-500 shadow-md' : 'border-l-transparent opacity-80 hover:opacity-100'))}`}>
+                                                    <div className="flex-1 space-y-3">
+                                                        <div className="flex justify-between items-start">
+                                                            <div>
+                                                                <div className="flex items-center gap-2 mb-1">
+                                                                    <span className="text-xs font-black bg-slate-100 text-slate-500 px-2 py-0.5 rounded">#{order.orderId}</span>
+                                                                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${STATUS_MAP[order.status]?.class}`}>
+                                                                        {STATUS_MAP[order.status]?.label}
+                                                                    </span>
+                                                                    {order.status === 'pending' && <span className="animate-pulse w-2 h-2 bg-red-500 rounded-full"></span>}
+                                                                </div>
+                                                                <h3 className="font-[800] text-lg text-slate-800">{order.userInfo?.name} <span className="text-base text-slate-400 font-medium">{order.userInfo?.phone}</span></h3>
+                                                            </div>
+                                                            <div className="text-right">
+                                                                <div className="font-[900] text-xl text-[#5B2274]">${order.totalPrice}</div>
+                                                                {/* 顯示下單時間 */}
+                                                                <div className="text-[10px] font-bold text-slate-400 mt-1">下單: {formatDate(order.createdAt)}</div>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-2">
+                                                            {/* 醒目的取餐時間 */}
+                                                            <div className={`flex items-center gap-2 text-sm font-black p-2 rounded-lg ${currentTab === 'future' ? 'bg-orange-50 text-orange-600' : 'bg-white text-[#5B2274] border border-slate-100'}`}>
+                                                                <Icon name="Clock" size={18} />
+                                                                <span>取餐：{order.userInfo?.pickupDate} {order.userInfo?.pickupTime}</span>
+                                                                {currentTab === 'today' && order.userInfo?.pickupTime === 'ASAP' && <span className="bg-red-100 text-red-600 text-[10px] px-2 py-0.5 rounded">盡快</span>}
+                                                            </div>
+                                                            
+                                                            <div className="border-t border-slate-200 border-dashed my-2"></div>
+                                                            
+                                                            {/* [保留您剛才更新的完整詳情版區塊] */}
+                                                            <div className="space-y-3">
+                                                                {order.items?.map((item, idx) => (
+                                                                    <div key={idx} className="flex flex-col text-sm border-b border-slate-100 border-dashed pb-2 last:border-0 last:pb-0">
+                                                                        <div className="flex justify-between items-start">
+                                                                            <span className="font-[800] text-slate-700">
+                                                                                {item.qty}x {item.name} 
+                                                                                <span className="text-slate-400 font-bold text-xs ml-1">{item.variantName ? `(${item.variantName})` : ''}</span>
+                                                                            </span>
+                                                                            <span className="text-slate-500 font-bold">${item.totalPrice}</span>
+                                                                        </div>
+                                                                        {item.addons?.length > 0 && (
+                                                                            <div className="text-xs text-slate-500 pl-4 mt-0.5 font-medium">
+                                                                                {item.addons.map(a => a.name).join(' / ')}
+                                                                            </div>
+                                                                        )}
+                                                                        {item.sideGroups && Object.values(item.sideGroups).map((side, sIdx) => (
+                                                                            <div key={sIdx} className="text-xs text-slate-600 pl-4 mt-1">
+                                                                                <span className="font-bold text-[#5B2274]">[附]</span> {side.name} {side.variantName ? `(${side.variantName})` : ''}
+                                                                                {side.addons?.length > 0 && <span className="text-slate-400"> / {side.addons.map(a => a.name).join(' / ')}</span>}
+                                                                            </div>
+                                                                        ))}
+                                                                        {item.set && (
+                                                                            <div className="pl-4 mt-1 space-y-0.5">
+                                                                                <div className="text-xs font-bold text-[#5B2274]">[套] {item.set.name}</div>
+                                                                                {item.set.contents?.map((content, cIdx) => {
+                                                                                    let contentText = "";
+                                                                                    const choice = item.setChoices ? item.setChoices[cIdx] : null;
+                                                                                    if (choice) {
+                                                                                        contentText = `${choice.name} ${choice.variantName ? `(${choice.variantName})` : ''}`;
+                                                                                        if (choice.addons?.length > 0) contentText += ` / ${choice.addons.map(a => a.name).join(' / ')}`;
+                                                                                    } else if (content.type === 'fixed') {
+                                                                                        const fixedProd = products.find(p => p.id === content.productId);
+                                                                                        contentText = fixedProd ? fixedProd.name : '固定餐點';
+                                                                                        if (content.variantName) contentText += ` (${content.variantName})`;
+                                                                                    }
+                                                                                    if (!contentText) return null;
+                                                                                    return (
+                                                                                        <div key={cIdx} className="text-xs text-slate-600 pl-2 flex items-start"><span className="mr-1">•</span><span>{contentText}</span></div>
+                                                                                    );
+                                                                                })}
+                                                                            </div>
+                                                                        )}
+                                                                        {item.note && (
+                                                                            <div className="text-xs text-orange-500 bg-orange-50 px-2 py-1 rounded mt-1 font-bold inline-block self-start">
+                                                                                備註: {item.note}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+
+                                                            {order.discountAmount > 0 && (
+                                                                <div className="flex justify-between text-xs font-bold text-red-500 pt-1 border-t border-slate-200 border-dashed">
+                                                                    <span>折扣 ({order.discountApplied})</span>
+                                                                    <span>-${order.discountAmount}</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                     </div>
-                                                    <div className="bg-white/20 px-3 py-1 rounded text-xs font-bold">建議切換準備時間為 30 分鐘</div>
+                                                    
+                                                    {/* [修改 4] 狀態操作按鈕 (流程控制) */}
+                                                    <div className="flex lg:flex-col gap-2 justify-center lg:w-40 border-t lg:border-t-0 lg:border-l border-slate-100 pt-4 lg:pt-0 lg:pl-6 shrink-0">
+            
+                                                        {/* 1. 待處理 -> 接單 (變 confirmed) */}
+                                                        {order.status === 'pending' && (
+                                                            <>
+                                                                <Button size="normal" icon="ClipboardCheck" className="flex-1 bg-blue-600 hover:bg-blue-700 shadow-blue-200 text-sm" onClick={() => handleUpdateOrderStatus(order.id, 'confirmed')}>
+                                                                    確認接單
+                                                                </Button>
+                                                                <Button size="normal" variant="danger" icon="XCircle" className="flex-1" onClick={() => { if(confirm('確定拒單/取消？')) handleUpdateOrderStatus(order.id, 'cancelled'); }}>
+                                                                    取消訂單
+                                                                </Button>
+                                                            </>
+                                                        )}
+                                            
+                                                        {/* 2. 已接單 -> 開始製作 (變 preparing) */}
+                                                        {order.status === 'confirmed' && (
+                                                            <>
+                                                                <Button size="normal" icon="Flame" className="flex-1 bg-orange-500 hover:bg-orange-600 shadow-orange-200 text-sm" onClick={() => handleUpdateOrderStatus(order.id, 'preparing')}>
+                                                                    開始製作
+                                                                </Button>
+                                                                <div className="text-xs text-center text-blue-400 font-bold py-1">已接單，排隊中</div>
+                                                                <button onClick={() => { if(confirm('確定取消？')) handleUpdateOrderStatus(order.id, 'cancelled'); }} className="text-xs text-slate-400 hover:text-red-500 underline decoration-dashed">取消</button>
+                                                            </>
+                                                        )}
+                                            
+                                                        {/* 3. 製作中 -> 製作完成 (變 ready) */}
+                                                        {order.status === 'preparing' && (
+                                                            <>
+                                                                <Button size="normal" icon="CheckCircle" className="flex-1 bg-emerald-500 hover:bg-emerald-600 shadow-emerald-200 text-sm" onClick={() => handleUpdateOrderStatus(order.id, 'ready')}>
+                                                                    製作完成
+                                                                </Button>
+                                                                <div className="text-xs text-center text-orange-400 font-bold py-1">正在製作...</div>
+                                                            </>
+                                                        )}
+                                            
+                                                        {/* 4. 已完成 (待取) -> 確認取餐 (變 completed/結案) */}
+                                                        {order.status === 'ready' && (
+                                                            <>
+                                                                <Button size="normal" icon="ShoppingBag" className="flex-1 bg-[#5B2274] hover:bg-[#4a1b5e] shadow-purple-200 text-sm" onClick={() => handleUpdateOrderStatus(order.id, 'completed')}>
+                                                                    確認取餐
+                                                                </Button>
+                                                                <div className="text-xs text-center text-emerald-500 font-bold py-1">等待取餐</div>
+                                                            </>
+                                                        )}
+                                            
+                                                        {/* 5. 已結束 -> 顯示狀態 */}
+                                                        {order.status === 'completed' && (
+                                                            <div className="flex flex-col items-center justify-center h-full text-green-600 font-bold opacity-60">
+                                                                <Icon name="CheckCheck" size={32} />
+                                                                <span>已取餐</span>
+                                                            </div>
+                                                        )}
+                                                        {order.status === 'cancelled' && (
+                                                            <div className="flex flex-col items-center justify-center h-full text-red-400 font-bold opacity-60">
+                                                                <Icon name="XCircle" size={32} />
+                                                                <span>已取消</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            
+                                            {displayOrders.length === 0 && (
+                                                <div className="text-center py-16 text-slate-400 font-bold bg-white/50 rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center gap-3">
+                                                    <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center"><Icon name="Inbox" size={32} className="opacity-50"/></div>
+                                                    <span>
+                                                        {currentTab === 'today' ? '今日尚無訂單' : 
+                                                         currentTab === 'future' ? '目前無未來預約' : '無歷史紀錄'}
+                                                    </span>
                                                 </div>
                                             )}
                                         </div>
-
-                                        {/* === VIEW 1: KDS 智慧看板 === */}
-                                        {subTab === 'kds' && (
-                                            <div className="grid grid-cols-1 gap-4">
-                                                {activeOrders.length === 0 && (
-                                                    <div className="text-center py-20 text-slate-300 font-black text-2xl flex flex-col items-center gap-4">
-                                                        <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center"><Icon name="Coffee" size={48} /></div>
-                                                        目前沒有待處理訂單，休息一下！
-                                                    </div>
-                                                )}
-                                                {activeOrders.map(order => {
-                                                    const mins = getMinutesRemaining(order.userInfo?.pickupDate, order.userInfo?.pickupTime);
-                                                    const kdsState = getKDSState(mins);
-                                                    
-                                                    return (
-                                                        <div key={order.id} className={`flex flex-col lg:flex-row bg-white rounded-2xl shadow-sm border overflow-hidden transition-all hover:shadow-md ${mins < 0 ? 'border-slate-300' : 'border-slate-100'}`}>
-                                                            {/* 左側：時間戰情面板 */}
-                                                            <div className={`p-5 lg:w-56 shrink-0 flex flex-col justify-between relative overflow-hidden ${kdsState.color}`}>
-                                                                <div className={`absolute top-0 right-0 p-8 bg-white/10 rounded-full -mr-4 -mt-4 blur-xl ${kdsState.animate}`}></div>
-                                                                <div>
-                                                                    <div className="flex justify-between items-center mb-2 relative z-10">
-                                                                        <span className="bg-black/20 px-2 py-1 rounded text-xs font-black backdrop-blur-sm">#{order.orderId.slice(-4)}</span>
-                                                                        {order.userInfo?.pickupDate > todayStr && <span className="text-[10px] font-bold bg-white/30 px-1.5 py-0.5 rounded">未來單</span>}
-                                                                    </div>
-                                                                    <div className="relative z-10">
-                                                                        <div className="text-xs font-bold opacity-80 uppercase tracking-widest mb-1">預計取餐</div>
-                                                                        <div className="text-4xl font-[900] leading-none tracking-tighter">{order.userInfo?.pickupTime}</div>
-                                                                        <div className="mt-3 flex items-center gap-2 font-bold">
-                                                                            <Icon name={kdsState.icon} size={18} />
-                                                                            <span>{mins < 0 ? `逾時 ${Math.abs(mins)} 分` : `剩 ${mins} 分鐘`}</span>
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                                <div className="mt-6 pt-4 border-t border-white/20 relative z-10">
-                                                                    <div className="text-xs font-bold opacity-80 mb-1">目前狀態</div>
-                                                                    <div className="text-lg font-black flex items-center gap-2">{STATUS_MAP[order.status]?.label}</div>
-                                                                </div>
-                                                            </div>
-
-                                                            {/* 中間：訂單詳情 */}
-                                                            <div className="flex-1 p-6 space-y-4">
-                                                                <div className="flex justify-between items-start">
-                                                                    <div>
-                                                                        <h3 className="text-2xl font-[900] text-slate-800 flex items-center gap-3">
-                                                                            {order.userInfo?.name}
-                                                                            <span className="text-base font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded-lg flex items-center gap-1"><Icon name="Phone" size={14}/>{order.userInfo?.phone}</span>
-                                                                        </h3>
-                                                                        <div className="text-xs font-bold text-slate-400 mt-1 flex gap-2">
-                                                                            <span>下單: {formatDate(order.createdAt)}</span>
-                                                                            {order.note && <span className="text-orange-500">有備註</span>}
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="text-right">
-                                                                        <div className="text-3xl font-[900] text-[#5B2274]">${order.totalPrice}</div>
-                                                                    </div>
-                                                                </div>
-
-                                                                {/* 餐點清單 */}
-                                                                <div className="bg-slate-50 rounded-xl border border-slate-200/60 p-1">
-                                                                    {order.items?.map((item, idx) => (
-                                                                        <div key={idx} className="flex gap-4 p-3 border-b border-slate-200 last:border-0 border-dashed items-start">
-                                                                            <div className="w-8 h-8 bg-slate-200 rounded-lg flex items-center justify-center font-[900] text-slate-600 text-lg shrink-0">{item.qty}</div>
-                                                                            <div className="flex-1 min-w-0">
-                                                                                <div className="font-[800] text-slate-800 text-base">
-                                                                                    {item.name} <span className="text-xs font-bold text-slate-400 ml-1">{item.variantName}</span>
-                                                                                </div>
-                                                                                
-                                                                                {/* 客製化/附餐/套餐顯示優化 */}
-                                                                                <div className="text-xs font-bold space-y-1 mt-1">
-                                                                                    {item.addons?.length > 0 && <div className="text-slate-500 bg-white inline-block px-2 py-0.5 rounded border border-slate-100 mr-1">{item.addons.map(a=>a.name).join('/')}</div>}
-                                                                                    {item.sideGroups && Object.values(item.sideGroups).map(s => (
-                                                                                        <div key={s.id} className="text-slate-600 flex items-center gap-1"><span className="text-[10px] bg-purple-100 text-[#5B2274] px-1 rounded">附</span>{s.name} {s.addons?.length>0 && `(${s.addons.map(a=>a.name).join('/')})`}</div>
-                                                                                    ))}
-                                                                                    {item.set && (
-                                                                                        <div className="text-slate-600">
-                                                                                            <span className="text-[10px] bg-purple-100 text-[#5B2274] px-1 rounded mr-1">套</span>{item.set.name}
-                                                                                            <div className="pl-4 mt-0.5 border-l-2 border-slate-200 text-slate-400 font-medium">
-                                                                                                {item.set.contents?.map((c, ci) => {
-                                                                                                    const ch = item.setChoices?.[ci];
-                                                                                                    if(ch) return <div key={ci}>• {ch.name}</div>;
-                                                                                                    const fp = products.find(p=>p.id===c.productId);
-                                                                                                    if(fp) return <div key={ci}>• {fp.name}</div>;
-                                                                                                    return null;
-                                                                                                })}
-                                                                                            </div>
-                                                                                        </div>
-                                                                                    )}
-                                                                                    {item.note && <div className="text-orange-600 bg-orange-50 px-2 py-1 rounded inline-block mt-1">備註: {item.note}</div>}
-                                                                                </div>
-                                                                            </div>
-                                                                            <div className="font-bold text-slate-400 text-sm">${item.totalPrice}</div>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            </div>
-
-                                                            {/* 右側：操作按鈕 (流程引擎) */}
-                                                            <div className="bg-slate-50 border-t lg:border-t-0 lg:border-l border-slate-200 p-4 lg:w-48 flex flex-col justify-center gap-3 shrink-0">
-                                                                {order.status === 'pending' && (
-                                                                    <>
-                                                                        <button onClick={() => handleUpdateOrderStatus(order.id, 'confirmed')} className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-lg shadow-blue-200 font-[900] text-lg transition-transform active:scale-95 flex items-center justify-center gap-2"><Icon name="ClipboardCheck"/> 接單</button>
-                                                                        <button onClick={() => { if(confirm('確定拒絕？')) handleUpdateOrderStatus(order.id, 'cancelled'); }} className="w-full py-2 text-red-400 font-bold hover:bg-red-50 rounded-lg text-xs">拒絕訂單</button>
-                                                                    </>
-                                                                )}
-                                                                {order.status === 'confirmed' && (
-                                                                    <>
-                                                                        <button onClick={() => handleUpdateOrderStatus(order.id, 'preparing')} className="w-full py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-xl shadow-lg shadow-orange-200 font-[900] text-lg transition-transform active:scale-95 flex items-center justify-center gap-2"><Icon name="Flame"/> 製作</button>
-                                                                        <div className="text-center text-xs font-bold text-blue-400">已接單，排隊中</div>
-                                                                    </>
-                                                                )}
-                                                                {order.status === 'preparing' && (
-                                                                    <>
-                                                                        <button onClick={() => handleUpdateOrderStatus(order.id, 'ready')} className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl shadow-lg shadow-emerald-200 font-[900] text-lg transition-transform active:scale-95 flex items-center justify-center gap-2"><Icon name="Bell"/> 完餐</button>
-                                                                        <div className="text-center text-xs font-bold text-orange-500 animate-pulse">製作中...</div>
-                                                                    </>
-                                                                )}
-                                                                {order.status === 'ready' && (
-                                                                    <>
-                                                                        <button onClick={() => handleUpdateOrderStatus(order.id, 'completed')} className="w-full py-4 bg-[#5B2274] hover:bg-[#4a1b5e] text-white rounded-xl shadow-lg shadow-purple-200 font-[900] text-lg transition-transform active:scale-95 flex items-center justify-center gap-2"><Icon name="CheckCircle"/> 取餐</button>
-                                                                        <div className="text-center text-xs font-bold text-emerald-600">等待客人取餐</div>
-                                                                    </>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
-
-                                        {/* === VIEW 2: 歷史查詢 === */}
-                                        {subTab === 'history' && (
-                                            <div className="space-y-4">
-                                                {historyOrders.length === 0 ? (
-                                                    <div className="text-center py-20 text-slate-400 font-bold bg-white/50 rounded-2xl border-2 border-dashed">該日期無歷史紀錄</div>
-                                                ) : historyOrders.map(order => (
-                                                    <div key={order.id} className="bg-white p-4 rounded-xl border border-slate-100 flex justify-between items-center opacity-75 hover:opacity-100 transition-opacity">
-                                                        <div className="flex items-center gap-4">
-                                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${order.status === 'completed' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-500'}`}>
-                                                                <Icon name={order.status === 'completed' ? 'Check' : 'X'} size={20} />
-                                                            </div>
-                                                            <div>
-                                                                <div className="font-bold text-slate-700">#{order.orderId} - {order.userInfo?.name}</div>
-                                                                <div className="text-xs text-slate-400">取餐: {order.userInfo?.pickupTime} • 下單: {formatDate(order.createdAt)}</div>
-                                                            </div>
-                                                        </div>
-                                                        <div className="text-right">
-                                                            <div className="font-black text-lg text-slate-800">${order.totalPrice}</div>
-                                                            <div className="text-xs font-bold text-slate-400">{order.items.length} 品項</div>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-
-                                        {/* === VIEW 3: 營運報表 === */}
-                                        {subTab === 'stats' && (
-                                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                                                {/* 總覽卡片 */}
-                                                <div className="bg-gradient-to-br from-[#5B2274] to-[#3b1649] text-white p-6 rounded-3xl shadow-xl col-span-1 lg:col-span-3 flex justify-between items-center">
-                                                    <div>
-                                                        <div className="text-white/70 text-sm font-bold uppercase tracking-widest mb-1">{historyDate} 總營收</div>
-                                                        <div className="text-5xl font-[900] tracking-tight">${stats.totalRevenue}</div>
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <div className="text-3xl font-black">{stats.count}</div>
-                                                        <div className="text-white/70 text-xs font-bold">總單量</div>
-                                                    </div>
-                                                </div>
-
-                                                {/* 成本分析 */}
-                                                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                                                    <h4 className="font-[900] text-slate-700 mb-4 flex items-center gap-2"><Icon name="Ticket" size={20} className="text-red-500"/> 折扣成本分析</h4>
-                                                    <div className="space-y-4">
-                                                        <div>
-                                                            <div className="flex justify-between text-sm font-bold text-slate-600 mb-1"><span>總折扣金額</span><span>${stats.totalDiscount}</span></div>
-                                                            <div className="w-full bg-slate-100 rounded-full h-2"><div className="bg-red-400 h-2 rounded-full" style={{width: '100%'}}></div></div>
-                                                        </div>
-                                                        <div className="grid grid-cols-2 gap-4 pt-2">
-                                                            <div className="bg-red-50 p-3 rounded-xl">
-                                                                <div className="text-xs text-red-400 font-bold mb-1">集點卡折抵</div>
-                                                                <div className="text-xl font-black text-red-600">${stats.loyaltyCost}</div>
-                                                            </div>
-                                                            <div className="bg-purple-50 p-3 rounded-xl">
-                                                                <div className="text-xs text-purple-400 font-bold mb-1">優惠券折抵</div>
-                                                                <div className="text-xl font-black text-purple-600">${stats.couponCost}</div>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                {/* 來源分析 (假設數據) */}
-                                                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                                                    <h4 className="font-[900] text-slate-700 mb-4 flex items-center gap-2"><Icon name="Users" size={20} className="text-blue-500"/> 客源分析</h4>
-                                                    <div className="flex items-center justify-center h-40 text-slate-400 font-bold bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                                                        <div className="text-center">
-                                                            <div className="text-2xl text-slate-300 mb-2"><Icon name="PieChart" size={40} className="mx-auto"/></div>
-                                                            需累積更多資料以顯示圖表
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
                                     </div>
                                 );
                             })()}
@@ -1610,4 +1498,3 @@
     </script>
 </body>
 </html>
-
