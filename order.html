@@ -400,9 +400,10 @@
             };
 
             return (
-                <div className="fixed inset-0 bg-white z-[100] flex flex-col animate-fade-in overflow-hidden">
-                    {/* [導航欄] */}
-                    <nav className="bg-white shadow-sm shrink-0">
+                <div className="fixed inset-0 bg-[#F3F4F6] z-[100] flex flex-col animate-fade-in overflow-hidden">
+                    
+                    {/* 【修改】導航欄：加入 shadow-md 與 z-10 */}
+                    <nav className="bg-[#F3F4F6] shrink-0 shadow-md relative z-10">
                         <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-between">
                             <button onClick={onClose} className="text-gray-600 active:scale-90 transition-transform">
                                 <Icon name="ArrowLeft" size={24} />
@@ -415,7 +416,7 @@
                     <div className="flex-1 overflow-y-auto no-scrollbar">
                         <div className="max-w-md mx-auto pb-10">
                             
-                            {/* [區塊 1] 狀態展示 + 【修改點3：預計取餐時間移至此處】 */}
+                            {/* [區塊 1] 狀態展示 */}
                             <div className="bg-white p-6 mb-2 rounded-b-3xl shadow-sm relative overflow-hidden text-center">
                                 <div className="absolute -top-10 -right-10 w-32 h-32 bg-purple-50 rounded-full opacity-50"></div>
                                 
@@ -426,7 +427,7 @@
                                 <h2 className={`text-2xl font-bold mb-1 ${order.status === 'cancelled' ? 'text-red-600' : 'text-gray-800'}`}>{config.title}</h2>
                                 <p className="text-gray-500 text-sm mb-3 px-4">{config.desc}</p>
 
-                                {/* ★ 新增：預計取餐時間 (膠囊樣式) */}
+                                {/* 預計取餐時間 (膠囊樣式) */}
                                 <div className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-100 px-3 py-1 rounded-full mb-6 shadow-sm">
                                     <Icon name="Clock" size={12} className="text-slate-400" />
                                     <span className="text-xs font-bold text-slate-600">
@@ -448,7 +449,7 @@
                                 )}
                             </div>
 
-                            {/* [區塊 2] 店家資訊卡 + 【修改點2：下單時間移至此處】 */}
+                            {/* [區塊 2] 店家資訊卡 */}
                             <div className="mx-4 mt-4 bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex justify-between items-center">
                                 <div className="flex items-center gap-3">
                                     <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400">
@@ -457,7 +458,6 @@
                                     <div>
                                         <h3 className="font-bold text-gray-800 text-sm">城市漢堡 虎尾光復店</h3>
                                         <p className="text-xs text-gray-500">訂單編號 #{order.orderId}</p>
-                                        {/* ★ 新增：下單時間 */}
                                         <p className="text-[10px] text-gray-400 mt-0.5 font-medium">下單時間：{formatTime(order.createdAt)}</p>
                                     </div>
                                 </div>
@@ -533,8 +533,6 @@
                                     )
                                 )}
                             </div>
-                            
-                            {/* 【修改點1】：已完全移除底部的 Order Details 區塊 */}
                         </div>
                     </div>
                 </div>
@@ -1954,3 +1952,4 @@
     </script>
 </body>
 </html>
+
