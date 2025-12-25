@@ -267,45 +267,7 @@
             return new Date().toLocaleString("en-CA", { timeZone: "Asia/Taipei" }).split(',')[0]; // 格式: YYYY-MM-DD
         };
 
-        // --- [新增] 訂單管理相關 State ---
-        const [historyDate, setHistoryDate] = useState(getTaiwanDateStr()); // 歷史訂單日期篩選，預設今日
-        const [currentTime, setCurrentTime] = useState(new Date()); // 用於即時倒數與逾時判斷
         
-        // 每分鐘更新一次時間，讓倒數計時器跳動
-        useEffect(() => {
-            const timer = setInterval(() => setCurrentTime(new Date()), 60000);
-            return () => clearInterval(timer);
-        }, []);
-
-        // --- [新增] 輔助函式：取得訂單的取餐時間物件 ---
-        const getOrderPickupTime = (order) => {
-            if (!order.userInfo?.pickupDate || !order.userInfo?.pickupTime) return null;
-            const d = new Date(`${order.userInfo.pickupDate}T${order.userInfo.pickupTime === 'ASAP' ? '00:00' : order.userInfo.pickupTime}`);
-            // 如果是 ASAP，簡單處理為下單時間+20分，或視為極為緊急
-            if (order.userInfo.pickupTime === 'ASAP') {
-                const created = new Date(order.createdAt);
-                return new Date(created.getTime() + 20 * 60000);
-            }
-            return d;
-        };
-
-        // --- [新增] 輔助函式：計算尖峰負荷 (每15分鐘區間) ---
-        const calculatePeakLoad = (ordersList) => {
-            const slots = {};
-            ordersList.forEach(o => {
-                if (['completed', 'cancelled'].includes(o.status)) return;
-                const time = o.userInfo?.pickupTime;
-                if (time && time !== 'ASAP') {
-                    // 將時間簡化為小時 (例如 11:30 -> 11)，簡單做每小時或半小時統計
-                    const hour = time.split(':')[0]; 
-                    slots[hour] = (slots[hour] || 0) + 1;
-                }
-            });
-            // 找出大於設定閥值 (例如每小時 > 10 單) 的時段
-            const peakThreshold = 10; 
-            const peakHours = Object.keys(slots).filter(h => slots[h] > peakThreshold);
-            return peakHours.length > 0 ? peakHours : null;
-        };
 
         function App() {
             const [user, setUser] = useState(null);
@@ -325,6 +287,46 @@
             
             // Order Filters
             const [orderFilter, setOrderFilter] = useState('all');
+
+            // --- [新增] 訂單管理相關 State ---
+            const [historyDate, setHistoryDate] = useState(getTaiwanDateStr()); // 歷史訂單日期篩選，預設今日
+            const [currentTime, setCurrentTime] = useState(new Date()); // 用於即時倒數與逾時判斷
+            
+            // 每分鐘更新一次時間，讓倒數計時器跳動
+            useEffect(() => {
+                const timer = setInterval(() => setCurrentTime(new Date()), 60000);
+                return () => clearInterval(timer);
+            }, []);
+
+            // --- [新增] 輔助函式：取得訂單的取餐時間物件 ---
+            const getOrderPickupTime = (order) => {
+                if (!order.userInfo?.pickupDate || !order.userInfo?.pickupTime) return null;
+                const d = new Date(`${order.userInfo.pickupDate}T${order.userInfo.pickupTime === 'ASAP' ? '00:00' : order.userInfo.pickupTime}`);
+                // 如果是 ASAP，簡單處理為下單時間+20分，或視為極為緊急
+                if (order.userInfo.pickupTime === 'ASAP') {
+                    const created = new Date(order.createdAt);
+                    return new Date(created.getTime() + 20 * 60000);
+                }
+                return d;
+            };
+
+            // --- [新增] 輔助函式：計算尖峰負荷 (每15分鐘區間) ---
+            const calculatePeakLoad = (ordersList) => {
+                const slots = {};
+                ordersList.forEach(o => {
+                    if (['completed', 'cancelled'].includes(o.status)) return;
+                    const time = o.userInfo?.pickupTime;
+                    if (time && time !== 'ASAP') {
+                        // 將時間簡化為小時 (例如 11:30 -> 11)，簡單做每小時或半小時統計
+                        const hour = time.split(':')[0]; 
+                        slots[hour] = (slots[hour] || 0) + 1;
+                    }
+                });
+                // 找出大於設定閥值 (例如每小時 > 10 單) 的時段
+                const peakThreshold = 10; 
+                const peakHours = Object.keys(slots).filter(h => slots[h] > peakThreshold);
+                return peakHours.length > 0 ? peakHours : null;
+            };
 
             useEffect(() => {
                 const { auth } = window.firebase;
