@@ -321,13 +321,14 @@
             );
         };
 
-        const OrderDetailModal = ({ order, onClose, onReorder, onCancel, products }) => {
+        const OrderHistoryItem = ({ order, onOpenDetail }) => {
             if (!order) return null;
-            const todayStr = new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei", year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
-            const isFuture = order.userInfo.pickupDate > todayStr;
             
             // 狀態文字對應邏輯
             const getStatusLabel = () => {
+                const todayStr = new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei", year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
+                const isFuture = order.userInfo.pickupDate > todayStr;
+
                 if (order.status === 'cancelled') return '訂單已取消';
                 if (order.status === 'completed') return '訂單已完成';
                 if (order.status === 'ready') return '餐點已完成';
@@ -369,12 +370,30 @@
             );
         };
         
-        const OrderDetailModal = ({ order, onClose, onReorder, onCancel }) => {
+        // 2. 訂單詳情彈窗元件 (保留此名稱，並確保包含 products 參數)
+        const OrderDetailModal = ({ order, onClose, onReorder, onCancel, products }) => {
             if (!order) return null;
 
             const todayStr = new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei", year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
             const isFuture = order.userInfo.pickupDate > todayStr;
-            const getStatusConfig = () => { /*...*/ switch (order.status) { /*...*/ default: return isFuture ? { title: '預約訂單已成立', desc: '店家已收到預約，將於指定時間開始製作餐點。', icon: 'Clock', color: 'text-teal-600', bg: 'bg-teal-100', bar: '#0D9488', width: '5%', anim: false } : { title: '訂單待店家確認', desc: '店家正在確認您的訂單內容，請稍候。', icon: 'ClipboardList', color: 'text-[#5B2274]', bg: 'bg-purple-100', bar: '#5B2274', width: '15%', anim: false }; } }; // (簡略保留原本邏輯)
+            const getStatusConfig = () => {
+                switch (order.status) {
+                    case 'cancelled':
+                        return { title: '訂單已取消', desc: '很抱歉，此訂單已被取消。如有疑問請直接致電店家。', icon: 'CircleX', color: 'text-red-500', bg: 'bg-red-100', bar: '#9CA3AF', width: '100%', anim: false };
+                    case 'completed':
+                        return { title: '訂單已完成', desc: '感謝您的訂購，期待再次為您服務！', icon: 'CheckCircle', color: 'text-blue-600', bg: 'bg-blue-100', bar: '#2563EB', width: '100%', anim: false };
+                    case 'ready':
+                        return { title: '餐點已完成', desc: '您的餐點已準備好，請前往櫃台取餐。', icon: 'ShoppingBag', color: 'text-green-500', bg: 'bg-green-100', bar: '#10B981', width: '100%', anim: true };
+                    case 'confirmed':
+                        return { title: '餐點製作中', desc: '廚房正在精心製作您的餐點，香氣四溢！', icon: 'Flame', color: 'text-orange-500', bg: 'bg-orange-100', bar: '#F97316', width: '60%', anim: true };
+                    case 'pending':
+                    default:
+                        return isFuture 
+                            ? { title: '預約訂單已成立', desc: '店家已收到預約，將於指定時間開始製作餐點。', icon: 'Clock', color: 'text-teal-600', bg: 'bg-teal-100', bar: '#0D9488', width: '5%', anim: false }
+                            : { title: '訂單待店家確認', desc: '店家正在確認您的訂單內容，請稍候。', icon: 'ClipboardList', color: 'text-[#5B2274]', bg: 'bg-purple-100', bar: '#5B2274', width: '15%', anim: false };
+                }
+            };
+
             const config = getStatusConfig();
             const formatTime = (iso) => { if(!iso) return "-"; const d = new Date(iso); return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
 
@@ -387,7 +406,7 @@
                     <div className="flex-1 overflow-y-auto no-scrollbar">
                         <div className="max-w-md mx-auto pb-10">
                             
-                            {/* [區塊 1] 狀態 (保持不變) */}
+                            {/* [區塊 1] 狀態 */}
                             <div className="bg-white p-6 mb-2 rounded-b-3xl shadow-sm relative overflow-hidden text-center">
                                 <div className="absolute -top-10 -right-10 w-32 h-32 bg-purple-50 rounded-full opacity-50"></div>
                                 <div className={`w-20 h-20 mx-auto ${config.bg} rounded-full flex items-center justify-center mb-4 transition-all duration-300 ${config.anim ? 'status-icon-anim' : ''}`}><Icon name={config.icon} size={32} className={config.color} /></div>
@@ -398,12 +417,12 @@
                                 {order.status !== 'cancelled' && (<div className="flex justify-between text-xs text-gray-400 font-medium px-1"><span>確認中</span><span>準備中</span><span>可取餐</span></div>)}
                             </div>
 
-                            {/* [區塊 2] 資訊 (保持不變) */}
+                            {/* [區塊 2] 資訊 */}
                             <div className="mx-4 mt-4 bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex justify-between items-center">
                                 <div className="flex items-center gap-3"><div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400"><Icon name="Store" size={20} /></div><div><h3 className="font-bold text-gray-800 text-sm">城市漢堡 虎尾光復店</h3><p className="text-xs text-gray-500">訂單編號 #{order.orderId}</p><p className="text-[10px] text-gray-400 mt-0.5 font-medium">下單時間：{formatTime(order.createdAt)}</p></div></div><a href={`tel:${window.settings?.phone || '056323111'}`} className="w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center text-[#5B2274]"><Icon name="Phone" size={16} /></a>
                             </div>
 
-                            {/* [區塊 3] 訂單明細 (修正版) */}
+                            {/* [區塊 3] 訂單明細 */}
                             <div className="mx-4 mt-4 mb-4 bg-white rounded-xl p-4 shadow-sm border border-gray-100">
                                 <h3 className="font-bold text-gray-800 mb-4 border-b border-gray-100 pb-2 flex items-center gap-2">
                                     <Icon name="Utensils" size={18} className="text-[#5B2274]" /> 餐點明細
@@ -426,21 +445,21 @@
                                                 <p className="text-xs text-slate-400 mt-1">{item.addons.map(a => a.name).join(' / ')}</p>
                                             )}
 
-                                            {/* 附餐: 斜線 */}
+                                            {/* 附餐 */}
                                             {item.sideGroups && Object.keys(item.sideGroups).length > 0 && (
                                                 <div className="text-xs text-slate-600 bg-purple-50 p-2 rounded-lg mt-2 space-y-1">
                                                     <p className="font-bold text-[#5B2274] mb-1">附餐：</p>
                                                     {Object.values(item.sideGroups).map((c, idx) => (
                                                         <div key={idx}>
                                                             <span className="font-bold text-slate-700 mr-2">• {c.name} {c.variantName && `(${c.variantName})`}</span>
-                                                            {/* 修改：+ 改 / */}
-                                                            {c.addons?.length > 0 && <span className="text-slate-400 block pl-2">/ {c.addons.map(a => a.name).join(' / ')}</span>}
+                                                            {/* 修改：移除開頭的符號，直接顯示項目 */}
+                                                            {c.addons?.length > 0 && <span className="text-slate-400 block pl-2">{c.addons.map(a => a.name).join(' / ')}</span>}
                                                         </div>
                                                     ))}
                                                 </div>
                                             )}
 
-                                            {/* 升級套餐: 顯示固定名稱、斜線 */}
+                                            {/* 升級套餐 */}
                                             {item.set && (
                                                 <div className="text-xs text-slate-600 bg-purple-50 p-2 rounded-lg mt-2 space-y-1">
                                                     <p className="font-bold text-[#5B2274] mb-1">升級套餐：{item.set.name}</p>
@@ -451,7 +470,7 @@
                                                             dn = ch.name; 
                                                             dv = ch.variantName; 
                                                         } else if (c.type === 'fixed') { 
-                                                            // 修改：查找名稱
+                                                            // 查找固定餐點名稱
                                                             const fixedProd = products?.find(p => p.id === c.productId);
                                                             if (fixedProd) dn = fixedProd.name;
                                                             else dn = "(固定餐點)";
@@ -462,8 +481,8 @@
                                                         return (
                                                             <div key={idx} className="flex flex-col">
                                                                 <span className="font-bold text-slate-700">• {dn} {dv && `(${dv})`}</span>
-                                                                {/* 修改：+ 改 / */}
-                                                                {ch?.addons?.length > 0 && <span className="text-slate-400 pl-3">/ {ch.addons.map(a => a.name).join(' / ')}</span>}
+                                                                {/* 修改：移除開頭的符號，直接顯示項目 */}
+                                                                {ch?.addons?.length > 0 && <span className="text-slate-400 pl-3">{ch.addons.map(a => a.name).join(' / ')}</span>}
                                                             </div>
                                                         ); 
                                                     })}
@@ -483,7 +502,7 @@
                                 </div>
                             </div>
 
-                            {/* [區塊 4] 動作欄 (保持不變) */}
+                            {/* [區塊 4] 動作欄 */}
                             <div className="mx-4 mt-6">
                                 {(['completed', 'cancelled'].includes(order.status)) ? (
                                     <button onClick={() => { onReorder(order); onClose(); }} className="w-full py-3.5 rounded-xl font-bold text-white shadow-lg bg-[#5B2274] active:scale-95 transition-all flex justify-center items-center gap-2"><Icon name="RotateCcw" size={20} /> 再次訂購</button>
@@ -855,7 +874,6 @@
 
             useEffect(() => { if (showCartModal) { const dates = getAvailableDates(); if (dates.length > 0 && !pickupDate) { setPickupDate(dates[0].value); } } }, [showCartModal, settings]);
             useEffect(() => { if (pickupDate) { setPickupHour(''); setPickupMinute(''); } }, [pickupDate]);
-            useEffect(() => { if (pickupDate && !isASAP && pickupHour === '') { const hours = getAvailableHours(pickupDate); if (hours.length > 0) { for (let h of hours) { const mins = getAvailableMinutes(pickupDate, h); if (mins.length > 0) { setPickupHour(h); setPickupMinute(mins[0]); break; } } } } }, [pickupDate, isASAP]);
 
             const getDisplayPrice = (p) => { if (p.variants && p.variants.length > 0) { const prices = p.variants.map(v => v.price); const min = Math.min(...prices); const max = Math.max(...prices); if (min === max) return `$${min}`; return `$${min} 起`; } return `$${p.price}`; };
 
@@ -868,6 +886,23 @@
                     if (availableVariants.length < product.variants.length) return 'partial'; 
                 }
                 return 'ok';
+            };
+
+            const checkSetAvailability = (set) => {
+                if (!set || !set.contents) return true;
+                
+                // 檢查每一個內容
+                for (const content of set.contents) {
+                    // 只檢查「固定 (fixed)」的餐點，因為「類別 (category)」通常有替代品，不用強制隱藏
+                    if (content.type === 'fixed') {
+                        const prod = products.find(p => p.id === content.productId);
+                        // 如果找不到商品，或該商品已售完，則此套餐不可用
+                        if (!prod || checkAvailability(prod) === 'all_out') {
+                            return false;
+                        }
+                    }
+                }
+                return true;
             };
 
             const isOpenStatus = useMemo(() => {
@@ -922,6 +957,15 @@
                 if (!configuringProduct) return;
                 const { product, variant, addons: confAddons } = configuringProduct;
                 if (product.variants && product.variants.length > 0 && !variant) { showAlert("請選擇規格"); return; }
+                // ★ 新增：檢查子項目的客製化選項是否符合 Min/Max
+                // 1. 取得子項目的分組設定
+                const subGroupedAddons = getGroupedAddons(addons.filter(a => product.allowAddons?.includes(a.id)));
+                // 2. 驗證
+                const val = validateAddons(subGroupedAddons, confAddons.map(a => a.id));
+                if (!val.valid) {
+                    showAlert(val.msg);
+                    return;
+                }
                 const finalPrice = (variant ? variant.price : product.price) + confAddons.reduce((sum, a) => sum + a.price, 0);
                 const choice = { id: product.id, name: product.name, price: finalPrice, variantName: variant ? variant.name : '', addons: confAddons };
                 if (selectionModal.type === 'side') { setSelectedSideGroups({ ...selectedSideGroups, [selectionModal.id]: choice }); }
@@ -1113,14 +1157,20 @@
                             });
                         }
 
-                        // 3. 客製化 (原本就沒有+號，維持斜線)
+                        // 3. 客製化 (修改：移除前綴)
                         if (Array.isArray(item.addons) && item.addons.length > 0) {
                             rowContents.push({
-                                type: "text", text: `客製：${item.addons.map(a => a.name).join(' / ')}`, size: "xs", color: SUB_TEXT_COLOR, wrap: true, margin: "xs", offsetStart: "xxl"
+                                type: "text", 
+                                text: item.addons.map(a => a.name).join(' / '), // 直接顯示內容，無前綴
+                                size: "xs", 
+                                color: SUB_TEXT_COLOR, 
+                                wrap: true, 
+                                margin: "xs", 
+                                offsetStart: "xxl"
                             });
                         }
 
-                        // 4. 附餐 (將 + 號改為 / )
+                        // 4. 附餐 (前綴為 "附餐：")
                         if (item.sideGroups && Object.keys(item.sideGroups).length > 0) {
                             rowContents.push({
                                 type: "text", text: "附餐：", size: "xs", color: BRAND_COLOR, weight: "bold", margin: "sm", offsetStart: "xxl"
@@ -1128,7 +1178,6 @@
                             Object.values(item.sideGroups).forEach(side => {
                                 let sideText = `• ${side.name}`;
                                 if (side.variantName) sideText += ` (${side.variantName})`;
-                                // 修改處：這裡把 + 改成了 /
                                 if (side.addons && side.addons.length > 0) sideText += ` / ${side.addons.map(a => a.name).join('/')}`;
                                 rowContents.push({
                                     type: "text", text: sideText, size: "xs", color: SUB_TEXT_COLOR, wrap: true, margin: "xs", offsetStart: "xxl"
@@ -1136,7 +1185,7 @@
                             });
                         }
 
-                        // 5. 升級套餐 (顯示固定品項名稱、將 + 號改為 / )
+                        // 5. 升級套餐 (前綴為 "升級套餐：")
                         if (item.set) {
                             rowContents.push({
                                 type: "text", text: `升級套餐：${item.set.name}`, size: "xs", color: BRAND_COLOR, weight: "bold", margin: "sm", offsetStart: "xxl"
@@ -1149,10 +1198,8 @@
                                     if (choice) {
                                         contentText = `• ${choice.name}`;
                                         if (choice.variantName) contentText += ` (${choice.variantName})`;
-                                        // 修改處：這裡把 + 改成了 /
                                         if (choice.addons && choice.addons.length > 0) contentText += ` / ${choice.addons.map(a => a.name).join('/')}`;
                                     } else if (c.type === 'fixed') {
-                                        // 修改處：查找固定餐點名稱
                                         const fixedProd = products.find(p => p.id === c.productId);
                                         if (fixedProd) {
                                             contentText = `• ${fixedProd.name}`;
@@ -1434,7 +1481,81 @@
                 return () => observer.disconnect();
             }, [categories, currentView]);
 
-            const getGroupedAddons = (targetAddons) => { const groups = {}; targetAddons.forEach(a => { const cat = a.category || '其他'; if (!groups[cat]) groups[cat] = []; groups[cat].push(a); }); const definedGroups = settings.addonGroups || []; const result = definedGroups.map(dg => ({ name: dg.name, items: (groups[dg.name] || []).sort((a,b) => (a.sortOrder||0) - (b.sortOrder||0)) })).filter(g => g.items.length > 0); const definedNames = definedGroups.map(dg => dg.name); Object.keys(groups).forEach(catName => { if (!definedNames.includes(catName)) { result.push({ name: catName, items: groups[catName].sort((a,b) => (a.sortOrder||0) - (b.sortOrder||0)) }); } }); return result; };
+            const getGroupedAddons = (targetAddons) => { 
+                const groups = {}; 
+                targetAddons.forEach(a => { 
+                    const cat = a.category || '其他'; 
+                    if (!groups[cat]) groups[cat] = []; 
+                    groups[cat].push(a); 
+                }); 
+                const definedGroups = settings.addonGroups || []; 
+                
+                const result = definedGroups.map(dg => ({ 
+                    name: dg.name, 
+                    items: (groups[dg.name] || []).sort((a,b) => (a.sortOrder||0) - (b.sortOrder||0)),
+                    // ★ 讀取 minSelect / maxSelect，若無則給預設值
+                    // 相容舊版 isRequired: true 等同於 min: 1
+                    min: typeof dg.minSelect === 'number' ? dg.minSelect : (dg.isRequired ? 1 : 0), 
+                    max: typeof dg.maxSelect === 'number' ? dg.maxSelect : 99 
+                })).filter(g => g.items.length > 0); 
+                
+                const definedNames = definedGroups.map(dg => dg.name); 
+                
+                Object.keys(groups).forEach(catName => { 
+                    if (!definedNames.includes(catName)) { 
+                        result.push({ 
+                            name: catName, 
+                            items: groups[catName].sort((a,b) => (a.sortOrder||0) - (b.sortOrder||0)),
+                            min: 0,
+                            max: 99
+                        }); 
+                    } 
+                }); 
+                return result; 
+            };
+
+            // 2. 共用驗證函式：檢查是否符合 Min/Max
+            const validateAddons = (groupedAddons, currentSelectedIds) => {
+                for (const group of groupedAddons) {
+                    // 計算該群組已選的數量 (比對 ID)
+                    const selectedCount = currentSelectedIds.filter(id => group.items.some(item => item.id === id)).length;
+                    
+                    if (selectedCount < group.min) {
+                        return { valid: false, msg: `「${group.name}」至少需選擇 ${group.min} 項` };
+                    }
+                    if (selectedCount > group.max) {
+                        return { valid: false, msg: `「${group.name}」最多只能選擇 ${group.max} 項` };
+                    }
+                }
+                return { valid: true, msg: '' };
+            };
+
+            // 3. 共用點擊處理函式：處理單選替換與多選限制
+            const handleAddonToggle = (addon, group, currentSelected, setter) => {
+                const isSelected = currentSelected.some(a => a.id === addon.id);
+                
+                if (isSelected) {
+                    // 取消選取 (先允許取消，最後送出前再擋 min，這樣操作體驗較好)
+                    setter(currentSelected.filter(a => a.id !== addon.id));
+                } else {
+                    // 新增選取
+                    if (group.max === 1) {
+                        // ★ 單選模式 (Radio)：直接替換同群組的舊選項
+                        const otherGroupItemIds = group.items.map(i => i.id);
+                        const cleanSelection = currentSelected.filter(a => !otherGroupItemIds.includes(a.id));
+                        setter([...cleanSelection, addon]);
+                    } else {
+                        // ★ 多選模式：檢查上限
+                        const currentGroupCount = currentSelected.filter(a => group.items.some(gi => gi.id === a.id)).length;
+                        if (currentGroupCount >= group.max) {
+                            showAlert(`「${group.name}」最多只能選擇 ${group.max} 項`);
+                            return;
+                        }
+                        setter([...currentSelected, addon]);
+                    }
+                }
+            };
+            
             const groupedItemAddons = useMemo(() => { if (!selectedItem || !selectedItem.allowAddons) return []; const validAddons = addons.filter(a => selectedItem.allowAddons.includes(a.id)); return getGroupedAddons(validAddons); }, [selectedItem, addons, settings.addonGroups]);
 
             // [修正：白屏問題] 必須在 groupedItemAddons 之後才定義驗證邏輯
@@ -1476,17 +1597,14 @@
             const validateSelection = () => {
                 if (!selectedItem) return { valid: false, msg: '' };
                 
-                // 1. 規格驗證
                 if (selectedItem.variants?.length > 0 && !selectedVariant) return { valid: false, msg: '請選擇規格' };
 
-                // 2. 附餐驗證 (強制檢查)
                 if (selectedItem.sideGroups?.length > 0) {
                     for (const group of selectedItem.sideGroups) {
                         if (!selectedSideGroups[group.id]) return { valid: false, msg: `請選擇附餐內的 ${group.title || '項目'}` };
                     }
                 }
 
-                // 3. 套餐驗證 (強制檢查)
                 if (selectedSet && selectedSet.contents) {
                     for (let i = 0; i < selectedSet.contents.length; i++) {
                         const content = selectedSet.contents[i];
@@ -1494,13 +1612,10 @@
                     }
                 }
 
-                // 4. 客製化驗證
-                for (const group of groupedItemAddons) {
-                    if (group.isRequired) {
-                        const selectedInGroup = selectedAddons.filter(a => group.items.some(gi => gi.id === a.id));
-                        if (selectedInGroup.length === 0) return { valid: false, msg: `請選擇 ${group.name}` };
-                    }
-                }
+                // ★ 使用新的驗證函式
+                const addonVal = validateAddons(groupedItemAddons, selectedAddons.map(a => a.id));
+                if (!addonVal.valid) return addonVal;
+
                 return { valid: true, msg: '' };
             };
             const selectionStatus = validateSelection();
@@ -1721,11 +1836,27 @@
                                             <p className="text-[11px] font-[900] text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-1">客製化選項</p>
                                             {groupedItemAddons.map(group => (
                                                 <div key={group.name} className="space-y-2">
-                                                    <p className="text-xs font-black text-slate-500">{group.name}</p>
-                                                    <div className="grid grid-cols-3 gap-2">
+                                                    {/* 標題列加入限制提示 */}
+                                                    <div className="flex justify-between items-end">
+                                                        <p className="text-xs font-black text-slate-500">{group.name}</p>
+                                                        <span className="text-[10px] text-slate-400 font-bold">
+                                                            {group.max === 1 ? '(單選)' : (group.min > 0 ? `(選 ${group.min}~${group.max} 項)` : `(至多 ${group.max} 項)`)}
+                                                        </span>
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-2">
                                                         {group.items.map(ad => {
                                                             const isSelected = selectedAddons.some(a => a.id === ad.id);
-                                                            return (<button key={ad.id} onClick={() => { if (isSelected) setSelectedAddons(selectedAddons.filter(a => a.id !== ad.id)); else setSelectedAddons([...selectedAddons, ad]); }} className={`px-2 py-3 border rounded-xl text-sm font-bold shadow-sm flex flex-col items-center justify-center gap-1 transition-all ${isSelected ? 'bg-[#5B2274] text-white border-[#5B2274] ring-2 ring-[#5B2274]' : 'bg-white border-slate-200 text-slate-600'}`}><span className="whitespace-nowrap overflow-hidden text-ellipsis w-full text-center">{ad.name}</span> {ad.price > 0 && <span className={`whitespace-nowrap ${isSelected ? 'text-white/80' : 'text-[#5B2274]'}`}>+${ad.price}</span>}</button>);
+                                                            return (
+                                                                <button 
+                                                                    key={ad.id} 
+                                                                    // ★ 改用 handleAddonToggle
+                                                                    onClick={() => handleAddonToggle(ad, group, selectedAddons, setSelectedAddons)} 
+                                                                    className={`p-3 rounded-xl text-sm font-bold flex justify-between transition-all ${isSelected ? 'bg-[#5B2274] text-white ring-2 ring-[#5B2274] ring-offset-1' : 'bg-white border border-slate-200 text-slate-600'}`}
+                                                                >
+                                                                    <span>{ad.name}</span> 
+                                                                    {ad.price > 0 && <span className={isSelected ? 'text-white/80' : 'text-[#5B2274]'}>+${ad.price}</span>}
+                                                                </button>
+                                                            );
                                                         })}
                                                     </div>
                                                 </div>
@@ -1760,6 +1891,7 @@
                                             <div className="space-y-3">
                                                 {selectedItem.allowSets.map(setId => {
                                                     const s = sets.find(set => set.id === setId); if (!s) return null;
+                                                    if (!checkSetAvailability(s)) return null;
                                                     const isSelected = selectedSet?.id === setId, isExpanded = expandedSetId === setId || isSelected;
                                                     let setImg = getOptimizedImage(s.image, 200) || 'https://placehold.co/100x100?text=Set';
                                                     if (!s.image) { const fixedItem = s.contents?.find(c => c.type === 'fixed'); if (fixedItem) { const p = products.find(prod => prod.id === fixedItem.productId); if (p && p.image) setImg = getOptimizedImage(p.image, 200); } }
@@ -1827,7 +1959,47 @@
                                     ) : (
                                         <div className="space-y-6">
                                             {configuringProduct.product.variants?.length > 0 && (<div className="space-y-2"><p className="text-xs font-black text-slate-400">規格</p><div className="grid grid-cols-2 gap-2">{configuringProduct.product.variants.map((v, i) => { const isS = configuringProduct.variant?.name === v.name, d = v.price - selectionModal.defaultPrice; return <button key={i} onClick={() => setConfiguringProduct({...configuringProduct, variant: isS ? null : v})} className={`p-3 rounded-xl border text-sm font-bold flex justify-between ${isS ? 'border-[#5B2274] bg-purple-50' : 'border-slate-200'}`}><span>{v.name}</span><span className="text-xs flex items-center gap-1"><s className="text-slate-400">${v.price}</s> <span className={d > 0 ? 'text-red-500' : (d < 0 ? 'text-green-500' : 'text-slate-500')}>{d === 0 ? '不需補差價' : (d > 0 ? `+$${d}` : `-$${Math.abs(d)}`)}</span></span></button>; })}</div></div>)}
-                                            {configuringProduct.product.allowAddons?.length > 0 && (<div className="space-y-4"><p className="text-[11px] font-[900] text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-1">客製化選項</p>{getGroupedAddons(addons.filter(a => configuringProduct.product.allowAddons.includes(a.id))).map(g => (<div key={g.name} className="space-y-2"><p className="text-xs font-black text-slate-500">{g.name}</p><div className="grid grid-cols-2 gap-2">{g.items.map(ad => { const isS = configuringProduct.addons.some(a => a.id === ad.id); return <button key={ad.id} onClick={() => { const newA = isS ? configuringProduct.addons.filter(a => a.id !== ad.id) : [...configuringProduct.addons, ad]; setConfiguringProduct({...configuringProduct, addons: newA}); }} className={`p-3 rounded-xl text-sm font-bold flex justify-between ${isS ? 'bg-[#5B2274] text-white' : 'text-slate-500 border border-slate-200'}`}><span>{ad.name}</span> {ad.price>0 && <span className={isS ? 'text-white' : 'text-[#5B2274]'}>+${ad.price}</span>}</button>; })}</div></div>))}</div>)}
+                                            {configuringProduct.product.allowAddons?.length > 0 && (() => {
+                                                // 這裡需要即時計算子項目的分組，因為它不像主商品有 state 存著
+                                                const subGroupedAddons = getGroupedAddons(addons.filter(a => configuringProduct.product.allowAddons.includes(a.id)));
+                                                
+                                                return (
+                                                    <div className="space-y-4">
+                                                        <p className="text-[11px] font-[900] text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-1">客製化選項</p>
+                                                        {subGroupedAddons.map(group => (
+                                                            <div key={group.name} className="space-y-2">
+                                                                <div className="flex justify-between items-end">
+                                                                    <p className="text-xs font-black text-slate-500">{group.name}</p>
+                                                                    <span className="text-[10px] text-slate-400 font-bold">
+                                                                        {group.max === 1 ? '(單選)' : (group.min > 0 ? `(選 ${group.min}~${group.max} 項)` : `(至多 ${group.max} 項)`)}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="grid grid-cols-2 gap-2">
+                                                                    {group.items.map(ad => {
+                                                                        const isSelected = configuringProduct.addons.some(a => a.id === ad.id);
+                                                                        return (
+                                                                            <button 
+                                                                                key={ad.id} 
+                                                                                // ★ 使用 handleAddonToggle，但要傳入特殊的 setter 來更新 configuringProduct
+                                                                                onClick={() => handleAddonToggle(
+                                                                                    ad, 
+                                                                                    group, 
+                                                                                    configuringProduct.addons, 
+                                                                                    (newAddons) => setConfiguringProduct({...configuringProduct, addons: newAddons})
+                                                                                )} 
+                                                                                className={`p-3 rounded-xl text-sm font-bold flex justify-between transition-all ${isSelected ? 'bg-[#5B2274] text-white ring-2 ring-[#5B2274] ring-offset-1' : 'bg-white border border-slate-200 text-slate-500'}`}
+                                                                            >
+                                                                                <span>{ad.name}</span> 
+                                                                                {ad.price > 0 && <span className={isSelected ? 'text-white' : 'text-[#5B2274]'}>+${ad.price}</span>}
+                                                                            </button>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                );
+                                            })()}
                                             <div className="border-t border-slate-100 pt-4 mt-2"><div className="flex justify-between items-center mb-4"><span className="font-bold text-slate-500">補差價金額</span><span className="font-black text-xl text-[#5B2274]">{(() => { if (configuringProduct.product.variants?.length > 0 && !configuringProduct.variant) return '請選擇規格'; const curr = (configuringProduct.variant ? configuringProduct.variant.price : configuringProduct.product.price) + configuringProduct.addons.reduce((s, a) => s + a.price, 0), diff = curr - selectionModal.defaultPrice; return diff === 0 ? '不需補差價' : (diff > 0 ? `+$${diff}` : `-$${Math.abs(diff)}`); })()}</span></div><button onClick={confirmConfiguration} className="w-full bg-[#5B2274] text-white py-3 rounded-xl font-bold shadow-lg">確認商品</button></div>
                                         </div>
                                     )}
