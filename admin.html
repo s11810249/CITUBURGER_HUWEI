@@ -267,6 +267,16 @@
             return new Date().toLocaleString("en-CA", { timeZone: "Asia/Taipei" }).split(',')[0]; // 格式: YYYY-MM-DD
         };
 
+        const formatTaiwanDate = (dateInput) => {
+            const d = new Date(dateInput);
+            return d.toLocaleDateString("zh-TW", {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                weekday: 'long'
+            });
+        };
+
         
 
         function App() {
@@ -1727,3 +1737,4 @@
     </script>
 </body>
 </html>
+
