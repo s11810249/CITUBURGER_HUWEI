@@ -1369,47 +1369,7 @@
             const groupedItemAddons = useMemo(() => { if (!selectedItem || !selectedItem.allowAddons) return []; const validAddons = addons.filter(a => selectedItem.allowAddons.includes(a.id)); return getGroupedAddons(validAddons); }, [selectedItem, addons, settings.addonGroups]);
 
             // [修正：白屏問題] 必須在 groupedItemAddons 之後才定義驗證邏輯
-            const validateSelection = () => {
-                if (!selectedItem) return { valid: false, msg: '' };
-                
-                // 1. 規格驗證
-                if (selectedItem.variants?.length > 0 && !selectedVariant) {
-                    return { valid: false, msg: '請選擇規格' };
-                }
-
-                // 2. 附餐驗證 (Side Groups) - 強制確認
-                if (selectedItem.sideGroups?.length > 0) {
-                    for (const group of selectedItem.sideGroups) {
-                        if (!selectedSideGroups[group.id]) {
-                            // 顯示具體的組件標題
-                            return { valid: false, msg: `請選擇附餐內的 ${group.title || '項目'}` };
-                        }
-                    }
-                }
-
-                // 3. 套餐驗證 (Set Choices) - 強制確認
-                if (selectedSet && selectedSet.contents) {
-                    for (let i = 0; i < selectedSet.contents.length; i++) {
-                        const content = selectedSet.contents[i];
-                        if (content.type === 'category' && !selectedSetChoices[i]) {
-                            return { valid: false, msg: `請選擇套餐內的 ${content.label || '品項'}` };
-                        }
-                    }
-                }
-
-                // 4. 客製化驗證 (Addons)
-                for (const group of groupedItemAddons) {
-                    if (group.isRequired) {
-                        const selectedInGroup = selectedAddons.filter(a => group.items.some(gi => gi.id === a.id));
-                        if (selectedInGroup.length === 0) return { valid: false, msg: `請選擇 ${group.name}` };
-                    }
-                }
-
-                return { valid: true, msg: '' };
-            };
             
-            const selectionStatus = validateSelection();
-
             const ProductCard = ({ item }) => {
                 const availability = checkAvailability(item);
                 const isSoldOut = availability === 'all_out';
@@ -1441,7 +1401,40 @@
                     </div>
                 );
             }
-            
+
+                // [修正：放在這裡，確保變數已定義]
+            const validateSelection = () => {
+                if (!selectedItem) return { valid: false, msg: '' };
+                
+                // 1. 規格驗證
+                if (selectedItem.variants?.length > 0 && !selectedVariant) return { valid: false, msg: '請選擇規格' };
+
+                // 2. 附餐驗證 (強制檢查)
+                if (selectedItem.sideGroups?.length > 0) {
+                    for (const group of selectedItem.sideGroups) {
+                        if (!selectedSideGroups[group.id]) return { valid: false, msg: `請選擇附餐內的 ${group.title || '項目'}` };
+                    }
+                }
+
+                // 3. 套餐驗證 (強制檢查)
+                if (selectedSet && selectedSet.contents) {
+                    for (let i = 0; i < selectedSet.contents.length; i++) {
+                        const content = selectedSet.contents[i];
+                        if (content.type === 'category' && !selectedSetChoices[i]) return { valid: false, msg: `請選擇套餐內的 ${content.label || '品項'}` };
+                    }
+                }
+
+                // 4. 客製化驗證
+                for (const group of groupedItemAddons) {
+                    if (group.isRequired) {
+                        const selectedInGroup = selectedAddons.filter(a => group.items.some(gi => gi.id === a.id));
+                        if (selectedInGroup.length === 0) return { valid: false, msg: `請選擇 ${group.name}` };
+                    }
+                }
+                return { valid: true, msg: '' };
+            };
+            const selectionStatus = validateSelection();
+                
             return (
                 <div className="h-screen flex flex-col overflow-hidden bg-[#F8F9FA]">
                     <header className="shrink-0 relative z-30 header-curve shadow-xl" style={{ backgroundColor: BRAND_COLOR }}>
@@ -1699,7 +1692,7 @@
                                                     let setImg = getOptimizedImage(s.image, 200) || 'https://placehold.co/100x100?text=Set';
                                                     if (!s.image) { const fixedItem = s.contents?.find(c => c.type === 'fixed'); if (fixedItem) { const p = products.find(prod => prod.id === fixedItem.productId); if (p && p.image) setImg = getOptimizedImage(p.image, 200); } }
                                                     return (
-                                                        <div key={setId} onClick={() => { if(isSelected) { setSelectedSet(null); setExpandedSetId(null); setSelectedSetChoices({}); } else { setSelectedSet(null); setExpandedSetId(null); setSelectedSetChoices({}); } }} className={`rounded-2xl border shadow-sm overflow-hidden transition-all cursor-pointer ${isSelected ? 'border-[#5B2274] ring-2 ring-[#5B2274]' : 'border-slate-100 bg-white'}`}>
+                                                        <div key={setId} onClick={() => { if(isSelected) { setSelectedSet(null); setExpandedSetId(null); setSelectedSetChoices({}); } else { setSelectedSet(s); setExpandedSetId(setID); setSelectedSetChoices({}); } }} className={`rounded-2xl border shadow-sm overflow-hidden transition-all cursor-pointer ${isSelected ? 'border-[#5B2274] ring-2 ring-[#5B2274]' : 'border-slate-100 bg-white'}`}>
                                                             <div className={`flex gap-3 p-3 items-center ${isSelected ? 'bg-purple-50' : 'bg-white'}`}><div className="w-16 h-16 rounded-xl bg-slate-100 border border-slate-100 overflow-hidden shrink-0 aspect-square"><img src={setImg} className="w-full h-full object-cover" /></div><div className="flex-1 min-w-0"><div className="flex justify-between items-center"><p className="text-sm font-bold text-slate-800 truncate">{s.name}</p><span className="text-sm font-black text-[#5B2274]">+${s.price}</span></div><div className="flex justify-between items-center mt-1"><span className="text-[10px] text-slate-400 font-bold">查看內容</span><div className={`w-5 h-5 rounded-full border flex items-center justify-center ${isSelected ? 'bg-[#5B2274] border-[#5B2274]' : 'border-slate-300'}`}>{isSelected && <Icon name="check" size={12} className="text-white" />}</div></div></div></div>
                                                             {isExpanded && (
                                                                 <div className="p-3 pt-0 border-t border-slate-100 animate-fade-in" onClick={e => e.stopPropagation()}>
