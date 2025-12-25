@@ -285,13 +285,67 @@
             const [coupons, setCoupons] = useState([]);
             const [settings, setSettings] = useState({ statusMode: 'auto', openTime: '06:00', closeTime: '13:30', phone: '', address: '', mapsUrl: '', closedDays: [], announcements: ['', '', ''], specialDates: [], productTags: [], cloudinaryCloudName: '', cloudinaryUploadPreset: '', materialGroups: [], addonGroups: [], liffId: '', liffIdBrowse: '' });
             
+            
             // Order Filters
             const [orderFilter, setOrderFilter] = useState('all');
 
             // --- [新增] 訂單管理相關 State ---
             const [historyDate, setHistoryDate] = useState(getTaiwanDateStr()); // 歷史訂單日期篩選，預設今日
             const [currentTime, setCurrentTime] = useState(new Date()); // 用於即時倒數與逾時判斷
-            
+
+            const [customerNote, setCustomerNote] = useState(''); 
+            const [isFetchingUser, setIsFetchingUser] = useState(false); 
+
+            // 當打開編輯訂單 Modal 時，自動去抓這位客人的永久註記
+            useEffect(() => {
+                if (modal && modal.type === 'edit_order' && modal.data?.customerUid) {
+                    setIsFetchingUser(true);
+                    
+                    // 1. ★ 從 window 物件取得 db 與 firestore 方法
+                    const { db } = window.firebase;
+                    const { doc, onSnapshot } = window.firestore;
+
+                    // 2. ★ 使用 v9 語法 (onSnapshot) 監聽資料
+                    // 這裡改用 onSnapshot 而非 get().then()，因為您的專案設定中比較容易取得 onSnapshot
+                    const unsubscribe = onSnapshot(doc(db, 'users', modal.data.customerUid), (docSnap) => {
+                        if (docSnap.exists()) {
+                            setCustomerNote(docSnap.data().internalNote || '');
+                        } else {
+                            setCustomerNote('');
+                        }
+                        setIsFetchingUser(false);
+                    }, (error) => {
+                        console.error("讀取客戶資料失敗:", error);
+                        setIsFetchingUser(false);
+                    });
+
+                    // 關閉 Modal 時取消監聽
+                    return () => unsubscribe();
+                } else {
+                    setCustomerNote('');
+                }
+            }, [modal]);
+
+            // 儲存顧客註記的函式
+            const saveCustomerNote = async () => {
+                if (!modal.data?.customerUid) return;
+                
+                // 1. ★ 取得 db 與 setDoc
+                const { db } = window.firebase;
+                const { doc, setDoc } = window.firestore;
+
+                try {
+                    // 2. ★ 使用 v9 語法 (setDoc) 儲存
+                    await setDoc(doc(db, 'users', modal.data.customerUid), {
+                        internalNote: customerNote
+                    }, { merge: true }); // merge: true 避免覆蓋其他欄位
+                    alert('顧客永久註記已更新！下次此人點餐會自動顯示。');
+                } catch (error) {
+                    console.error("儲存失敗:", error);
+                    alert('儲存失敗，請檢查權限或網路');
+                }
+            };
+                    
             // 每分鐘更新一次時間，讓倒數計時器跳動
             useEffect(() => {
                 const timer = setInterval(() => setCurrentTime(new Date()), 60000);
@@ -1532,124 +1586,136 @@
                                         </div>
                                     )}
                                     {modal.type === 'edit_order' && (
-                                            <div className="space-y-5 bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
-                                                {/* 標題與基本資訊 */}
-                                                <div className="flex justify-between items-start border-b border-slate-100 pb-4">
-                                                    <div>
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-xs font-black bg-slate-100 px-2 py-0.5 rounded">#{modal.data.orderId}</span>
-                                                            <h3 className="text-lg font-[900] text-slate-800">{modal.data.userInfo?.name}</h3>
-                                                        </div>
-                                                        <p className="text-xs text-slate-400 mt-1 font-bold">建立於: {formatDate(modal.data.createdAt)}</p>
+                                        <div className="space-y-5 bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
+                                            {/* Header */}
+                                            <div className="flex justify-between items-start border-b border-slate-100 pb-4">
+                                                <div>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-xs font-black bg-slate-100 px-2 py-0.5 rounded">#{modal.data.orderId.slice(-4)}</span>
+                                                        <h3 className="text-lg font-[900] text-slate-800">{modal.data.userInfo?.name}</h3>
                                                     </div>
-                                                    <div className="text-right">
-                                                        <p className="text-xs font-bold text-slate-400">目前金額</p>
-                                                        <p className="text-xl font-[900] text-[#5B2274]">${modal.data.totalPrice}</p>
-                                                    </div>
+                                                    <p className="text-xs text-slate-400 mt-1 font-bold">建立於: {formatDate(modal.data.createdAt)}</p>
                                                 </div>
-    
-                                                {/* 1. 修改金額與折扣 (後台權限) */}
-                                                <div className="bg-slate-50 p-4 rounded-xl space-y-3 border border-slate-100">
-                                                    <div className="flex items-center gap-2 text-slate-700 font-bold mb-2">
-                                                        <Icon name="Edit3" size={16} /> <span>訂單修正</span>
+                                                <div className="text-right">
+                                                    <p className="text-xs font-bold text-slate-400">目前金額</p>
+                                                    <p className="text-xl font-[900] text-[#5B2274]">${modal.data.totalPrice}</p>
+                                                </div>
+                                            </div>
+
+                                            {/* ★★★ [新增] 顧客情報與永久註記 (跟隨 User) ★★★ */}
+                                            <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-200 space-y-2 relative">
+                                                <div className="flex items-center gap-2 text-yellow-800 font-bold mb-1">
+                                                    <Icon name="User" size={16} /> <span>顧客永久檔案 (跨訂單顯示)</span>
+                                                </div>
+                                                
+                                                {isFetchingUser ? (
+                                                    <div className="text-xs text-slate-400 animate-pulse">讀取顧客資料中...</div>
+                                                ) : (
+                                                    <div className="flex gap-2">
+                                                        <textarea 
+                                                            className="flex-1 bg-white border border-yellow-300 rounded-lg p-2 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                                                            rows="2"
+                                                            placeholder="在此輸入關於此客人的永久註記 (例：奧客、喜歡辣、VIP)..."
+                                                            value={customerNote}
+                                                            onChange={(e) => setCustomerNote(e.target.value)}
+                                                        />
+                                                        <button 
+                                                            onClick={saveCustomerNote}
+                                                            className="bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-bold px-3 rounded-lg text-xs shadow-sm transition-colors"
+                                                        >
+                                                            存入<br/>檔案
+                                                        </button>
                                                     </div>
-                                                    <div className="grid grid-cols-2 gap-4">
-                                                        <div className="space-y-1">
-                                                            <label className="text-[10px] font-bold text-slate-500 uppercase">總金額 (覆寫)</label>
-                                                            <input 
-                                                                type="number" 
-                                                                className="input-compact font-bold text-slate-800"
-                                                                value={modal.data.totalPrice} 
-                                                                onChange={e => setModal({...modal, data: {...modal.data, totalPrice: parseInt(e.target.value)||0}})} 
-                                                            />
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <label className="text-[10px] font-bold text-slate-500 uppercase">折扣金額</label>
-                                                            <input 
-                                                                type="number" 
-                                                                className="input-compact font-bold text-red-500"
-                                                                value={modal.data.discountAmount || 0} 
-                                                                onChange={e => {
-                                                                    const val = parseInt(e.target.value) || 0;
-                                                                    // 自動更新總金額 (原始金額 - 新折扣)
-                                                                    const original = modal.data.originalPrice || (modal.data.totalPrice + (modal.data.discountAmount || 0));
-                                                                    setModal({...modal, data: {...modal.data, discountAmount: val, totalPrice: Math.max(0, original - val)}});
-                                                                }} 
-                                                            />
-                                                        </div>
+                                                )}
+                                                <p className="text-[10px] text-yellow-600/70 font-bold">* 此註記會綁定「{modal.data.userInfo?.name}」，下次他訂餐時會自動顯示。</p>
+                                            </div>
+
+                                            {/* 訂單修正 (跟隨 Order) */}
+                                            <div className="bg-slate-50 p-4 rounded-xl space-y-3 border border-slate-100">
+                                                <div className="flex items-center gap-2 text-slate-700 font-bold mb-2">
+                                                    <Icon name="Edit3" size={16} /> <span>本筆訂單修正</span>
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div className="space-y-1">
+                                                        <label className="text-[10px] font-bold text-slate-500 uppercase">總金額 (覆寫)</label>
+                                                        <input 
+                                                            type="number" 
+                                                            className="input-compact font-bold text-slate-800"
+                                                            value={modal.data.totalPrice} 
+                                                            onChange={e => setModal({...modal, data: {...modal.data, totalPrice: parseInt(e.target.value)||0}})} 
+                                                        />
                                                     </div>
                                                     <div className="space-y-1">
-                                                        <label className="text-[10px] font-bold text-slate-500 uppercase">店家備註 (內部)</label>
+                                                        <label className="text-[10px] font-bold text-slate-500 uppercase">折扣金額</label>
                                                         <input 
-                                                            className="input-compact font-bold"
-                                                            placeholder="例如：已退款、奧客注意..."
-                                                            value={modal.data.adminNote || ''}
-                                                            onChange={e => setModal({...modal, data: {...modal.data, adminNote: e.target.value}})}
+                                                            type="number" 
+                                                            className="input-compact font-bold text-red-500"
+                                                            value={modal.data.discountAmount || 0} 
+                                                            onChange={e => {
+                                                                const val = parseInt(e.target.value) || 0;
+                                                                const original = modal.data.originalPrice || (modal.data.totalPrice + (modal.data.discountAmount || 0));
+                                                                setModal({...modal, data: {...modal.data, discountAmount: val, totalPrice: Math.max(0, original - val)}});
+                                                            }} 
                                                         />
                                                     </div>
                                                 </div>
-    
-                                                {/* 2. 集點卡/優惠券核銷檢核 */}
-                                                <div className="bg-purple-50 p-4 rounded-xl border border-purple-100 space-y-3">
-                                                    <div className="flex items-center justify-between">
-                                                        <div className="flex items-center gap-2 text-[#5B2274] font-bold">
-                                                            <Icon name="Verified" size={16} /> <span>優惠核銷檢核</span>
-                                                        </div>
-                                                        {modal.data.verified ? (
-                                                            <span className="text-xs font-bold bg-green-100 text-green-600 px-2 py-1 rounded flex items-center gap-1"><Icon name="Check" size={12}/> 已核銷</span>
-                                                        ) : (
-                                                            <span className="text-xs font-bold bg-slate-200 text-slate-500 px-2 py-1 rounded">未核銷</span>
-                                                        )}
-                                                    </div>
-    
-                                                    {modal.data.discountApplied === 'loyalty' ? (
-                                                        <div className="text-sm font-bold text-slate-600 flex items-center gap-2">
-                                                            <span className="bg-red-100 text-red-500 text-xs px-2 py-0.5 rounded">集點卡</span>
-                                                            <span>客人使用了集點卡折抵 (-$50)</span>
-                                                        </div>
-                                                    ) : modal.data.discountApplied ? (
-                                                        <div className="text-sm font-bold text-slate-600 flex items-center gap-2">
-                                                            <span className="bg-blue-100 text-blue-500 text-xs px-2 py-0.5 rounded">優惠券</span>
-                                                            <span>代碼: {modal.data.discountApplied} (-${modal.data.discountAmount})</span>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="text-sm text-slate-400 font-bold">此訂單未使用優惠</div>
-                                                    )}
-    
-                                                    <div className="flex gap-2 pt-2">
-                                                        <button 
-                                                            onClick={() => setModal({...modal, data: {...modal.data, verified: !modal.data.verified}})}
-                                                            className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all border ${modal.data.verified ? 'bg-white border-red-200 text-red-500' : 'bg-[#5B2274] text-white border-[#5B2274]'}`}
-                                                        >
-                                                            {modal.data.verified ? '取消核銷狀態' : '確認核銷 (標記已檢查)'}
-                                                        </button>
-                                                        
-                                                        {/* 手動補套用集點卡 (如果客人忘記按) */}
-                                                        {!modal.data.discountApplied && (
-                                                            <button 
-                                                                onClick={() => {
-                                                                    const original = modal.data.totalPrice;
-                                                                    setModal({...modal, data: {...modal.data, discountApplied: 'loyalty', discountAmount: 50, totalPrice: Math.max(0, original - 50), verified: true}});
-                                                                }}
-                                                                className="flex-1 py-2 rounded-lg text-xs font-bold bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
-                                                            >
-                                                                手動套用集點卡 (-$50)
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                </div>
-    
-                                                {/* 刪除訂單按鈕 (危險區域) */}
-                                                <div className="pt-4 border-t border-slate-100 text-center">
-                                                    <button 
-                                                        onClick={() => { if(confirm("確定要永久刪除此訂單？(不可復原)")) { dbOp('delete', 'orders', modal.data.id); setModal(null); }}}
-                                                        className="text-xs font-bold text-red-400 hover:text-red-600 underline decoration-dashed"
-                                                    >
-                                                        永久刪除此訂單資料
-                                                    </button>
+                                                <div className="space-y-1">
+                                                    <label className="text-[10px] font-bold text-slate-500 uppercase">店家備註 (僅本單)</label>
+                                                    <input 
+                                                        className="input-compact font-bold"
+                                                        placeholder="例如：已退款、特殊處理..."
+                                                        value={modal.data.adminNote || ''}
+                                                        onChange={e => setModal({...modal, data: {...modal.data, adminNote: e.target.value}})}
+                                                    />
                                                 </div>
                                             </div>
-                                        )}
+
+                                            {/* 核銷檢核 */}
+                                            <div className="bg-purple-50 p-4 rounded-xl border border-purple-100 space-y-3">
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-2 text-[#5B2274] font-bold">
+                                                        <Icon name="Verified" size={16} /> <span>優惠核銷檢核</span>
+                                                    </div>
+                                                    {modal.data.verified ? (
+                                                        <span className="text-xs font-bold bg-green-100 text-green-600 px-2 py-1 rounded flex items-center gap-1"><Icon name="Check" size={12}/> 已核銷</span>
+                                                    ) : (
+                                                        <span className="text-xs font-bold bg-slate-200 text-slate-500 px-2 py-1 rounded">未核銷</span>
+                                                    )}
+                                                </div>
+
+                                                <div className="flex gap-2 pt-2">
+                                                    <button 
+                                                        onClick={() => setModal({...modal, data: {...modal.data, verified: !modal.data.verified}})}
+                                                        className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all border ${modal.data.verified ? 'bg-white border-red-200 text-red-500' : 'bg-[#5B2274] text-white border-[#5B2274]'}`}
+                                                    >
+                                                        {modal.data.verified ? '取消核銷' : '確認核銷'}
+                                                    </button>
+                                                    
+                                                    {!modal.data.discountApplied && (
+                                                        <button 
+                                                            onClick={() => {
+                                                                const original = modal.data.totalPrice;
+                                                                setModal({...modal, data: {...modal.data, discountApplied: 'loyalty', discountAmount: 50, totalPrice: Math.max(0, original - 50), verified: true}});
+                                                            }}
+                                                            className="flex-1 py-2 rounded-lg text-xs font-bold bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+                                                        >
+                                                            補套用集點卡
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* 刪除訂單 */}
+                                            <div className="pt-4 border-t border-slate-100 text-center">
+                                                <button 
+                                                    onClick={() => { if(confirm("確定要永久刪除此訂單？")) { dbOp('delete', 'orders', modal.data.id); setModal(null); }}}
+                                                    className="text-xs font-bold text-red-400 hover:text-red-600 underline decoration-dashed"
+                                                >
+                                                    永久刪除此訂單資料
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="p-5 bg-white border-t border-slate-100 flex gap-3"><Button variant="secondary" className="flex-1" onClick={() => setModal(null)}>取消</Button><Button className="flex-[2]" icon="Save" onClick={() => { 
                                     if (modal.type === 'tags') {
