@@ -120,7 +120,47 @@
             .mobile-full-width { width: 100%; }
             .mobile-scroll-x { overflow-x: auto; padding-bottom: 5px; width: 100%; -webkit-overflow-scrolling: touch; }
         }
+		
+		/* 底部抽屜動畫 */
+        @keyframes slideUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+        .order-drawer {
+            animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            height: 92vh; /* 裝置底部上來的頁面高度 */
+        }
+        /* 全域縮小一點點字體 */
+        .text-order-sm { font-size: 0.85rem; }
+        .text-order-xs { font-size: 0.75rem; }
+		
+		/* 底部抽屜效果 */
+        @keyframes drawerUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        .order-drawer-content { animation: drawerUp 0.3s cubic-bezier(0, 0, 0.2, 1) forwards; height: 90vh; }
         
+        /* 訂單內容清單層級線 */
+        .item-child-line { border-left: 2px solid #E2E8F0; margin-left: 1.25rem; padding-left: 1rem; }
+        
+		/* 底部抽屜與字體優化 */
+        @keyframes drawerSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        .drawer-up { animation: drawerSlideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        .order-detail-list-line { border-left: 2px solid #F1F5F9; margin-left: 0.75rem; padding-left: 1rem; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+		
+		/* 優惠券票券風格 */
+        .coupon-card {
+            background-image: radial-gradient(circle at 0 50%, transparent 12px, white 13px), 
+                              radial-gradient(circle at 100% 50%, transparent 12px, white 13px);
+            background-size: 100% 100%;
+        }
+        .coupon-dash {
+            border-left: 2px dashed #F1F5F9;
+            height: 80%;
+            position: absolute;
+            left: 25%;
+            top: 10%;
+        }
+		
     </style>
 </head>
 <body>
@@ -315,10 +355,11 @@
             const [sets, setSets] = useState([]);
             const [materials, setMaterials] = useState([]);
             const [orders, setOrders] = useState([]);
+			const [members, setMembers] = useState([]); // 儲存會員清單
             const [coupons, setCoupons] = useState([]);
             const [settings, setSettings] = useState({ statusMode: 'auto', openTime: '06:00', closeTime: '13:30', phone: '', address: '', mapsUrl: '', closedDays: [], announcements: ['', '', ''], specialDates: [], productTags: [], cloudinaryCloudName: '', cloudinaryUploadPreset: '', materialGroups: [], addonGroups: [], liffId: '', liffIdBrowse: '' });
 
-            // --- [單一整合區塊] 訂單管理介面狀態與核心邏輯 ---
+            // --- [訂單管理核心邏輯：狀態與過濾] ---
             const [orderFilter, setOrderFilter] = useState('today'); 
             const [subFilter, setSubFilter] = useState('all');       
             const [searchQuery, setSearchQuery] = useState(''); 
@@ -333,14 +374,12 @@
             const [currentTime, setCurrentTime] = useState(new Date());
 
             const [notifications, setNotifications] = useState([
-                { id: 1, type: 'new', title: '系統通知', desc: '新版訂單管理系統已更新', time: '剛剛', jumpStatus: 'pending' }
+                { id: 1, type: 'new', title: '系統通知', desc: '新版訂單抽屜介面已上線', time: '剛剛', jumpStatus: 'pending' }
             ]);
             const [customerNote, setCustomerNote] = useState(''); 
             const [isFetchingUser, setIsFetchingUser] = useState(false);
 
-            const deleteNotification = (id) => {
-                setNotifications(prev => prev.filter(n => n.id !== id));
-            };
+            const deleteNotification = (id) => setNotifications(prev => prev.filter(n => n.id !== id));
 
             const STATUS_STYLE = {
                 'pending':   { bg: 'bg-amber-50', text: 'text-amber-600', label: '待確認', border: 'border-amber-200', icon: 'BellRing' },
@@ -351,58 +390,47 @@
                 'cancelled': { bg: 'bg-red-50', text: 'text-red-500', label: '已取消', border: 'border-red-200', icon: 'XCircle' }
             };
 
-            const getTabCount = (tab) => {
-                return orders.filter(o => {
-                    const pDate = o.userInfo?.pickupDate || '1970-01-01';
-                    const isDone = ['completed', 'cancelled'].includes(o.status);
-                    if (tab === 'today') return pDate === todayStr && !isDone;
-                    if (tab === 'future') return pDate > todayStr && !isDone;
-                    return false;
-                }).length;
-            };
+            const getTabCount = (tab) => orders.filter(o => {
+                const pDate = o.userInfo?.pickupDate || '1970-01-01';
+                const isDone = ['completed', 'cancelled'].includes(o.status);
+                return (tab === 'today' ? pDate === todayStr : pDate > todayStr) && !isDone;
+            }).length;
 
-            const getStatusCount = (status) => {
-                return orders.filter(o => {
-                    const pDate = o.userInfo?.pickupDate || '1970-01-01';
-                    if (orderFilter === 'history') { if (pDate !== historyDate) return false; }
-                    else if (orderFilter === 'future') { if (pDate !== futureDate) return false; }
-                    else { if (pDate !== todayStr) return false; }
-                    if (status === 'all') return !['completed', 'cancelled'].includes(o.status);
-                    return o.status === status;
-                }).length;
-            };
+            const getStatusCount = (status) => orders.filter(o => {
+                const pDate = o.userInfo?.pickupDate || '1970-01-01';
+                if (orderFilter === 'history' ? pDate !== historyDate : (orderFilter === 'future' ? pDate !== futureDate : pDate !== todayStr)) return false;
+                return status === 'all' ? !['completed', 'cancelled'].includes(o.status) : o.status === status;
+            }).length;
 
             const filteredOrders = useMemo(() => {
                 return orders.filter(o => {
                     const pDate = o.userInfo?.pickupDate || '1970-01-01';
                     const isDone = ['completed', 'cancelled'].includes(o.status);
-                    if (orderFilter === 'history') { if (pDate !== historyDate) return false; }
-                    else if (orderFilter === 'future') { if (pDate !== futureDate) return false; }
-                    else { if (pDate !== todayStr) return false; }
-                    if (subFilter === 'all') { if (isDone) return false; }
-                    else { if (o.status !== subFilter) return false; }
+                    if (orderFilter === 'history' ? pDate !== historyDate : (orderFilter === 'future' ? pDate !== futureDate : pDate !== todayStr)) return false;
+                    if (subFilter === 'all' ? isDone : o.status !== subFilter) return false;
                     if (searchQuery) {
                         const q = searchQuery.toLowerCase();
-                        const uName = o.userInfo?.name || '';
-                        const uPhone = o.userInfo?.phone || '';
-                        const oId = o.orderId || '';
-                        return oId.toLowerCase().includes(q) || uName.toLowerCase().includes(q) || uPhone.includes(q);
+                        return o.orderId?.toLowerCase().includes(q) || o.userInfo?.name?.toLowerCase().includes(q) || o.userInfo?.phone?.includes(q);
                     }
                     return true;
-                }).sort((a, b) => {
-                    if (orderFilter === 'history') return new Date(b.createdAt) - new Date(a.createdAt);
-                    const timeA = a.userInfo?.pickupTime === 'ASAP' ? '00:00' : (a.userInfo?.pickupTime || '23:59');
-                    const timeB = b.userInfo?.pickupTime === 'ASAP' ? '00:00' : (b.userInfo?.pickupTime || '23:59');
-                    return (a.userInfo?.pickupDate || '').localeCompare(b.userInfo?.pickupDate || '') || timeA.localeCompare(timeB);
-                });
+                }).sort((a, b) => (orderFilter === 'history' ? new Date(b.createdAt) - new Date(a.createdAt) : a.userInfo?.pickupTime.localeCompare(b.userInfo?.pickupTime)));
             }, [orders, orderFilter, subFilter, historyDate, futureDate, searchQuery, todayStr]);
-
-            const handleNotificationClick = (status) => {
-                setSubFilter(status);
-                setIsNotifyOpen(false);
-                setOrderFilter('today');
-            };
-
+            
+			const optimizedCoupons = useMemo(() => {
+                const now = new Date();
+                return coupons.map(c => {
+                    // 從訂單中計算這張券被用了幾次
+                    const usageCount = orders.filter(o => o.couponCode === c.code && o.status === 'completed').length;
+                    
+                    // 判斷狀態
+                    let status = 'active'; // 進行中
+                    if (c.startDate && new Date(c.startDate) > now) status = 'scheduled'; // 尚未開始
+                    if (c.expiry && new Date(c.expiry) < now) status = 'expired'; // 已過期
+                    
+                    return { ...c, usageCount, status };
+                });
+            }, [coupons, orders]);
+			
             // 定義統一的資料庫路徑產生器 (避免手寫錯誤)
             const getUserDocRef = (uid) => {
                 const { db, appId } = window.firebase;
@@ -464,6 +492,41 @@
                     alert(`儲存失敗！\n請檢查 Console 錯誤訊息。\n常見原因：規則權限不足或路徑錯誤。`);
                 }
             };
+			
+			// 在 useEffect 中新增對 users 集合的監聽
+            useEffect(() => {
+                if (!user) return;
+                const { db, appId } = window.firebase;
+                const { collection, onSnapshot } = window.firestore;
+
+                const unsubscribeMembers = onSnapshot(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'users'),
+                    (snap) => {
+                        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                        setMembers(data);
+                    },
+                    (err) => console.error("Fetch members error:", err)
+                );
+
+                return () => unsubscribeMembers();
+            }, [user]);
+
+            // 計算會員統計數據的邏輯 (Memoized)
+            const memberStats = useMemo(() => {
+                return members.map(m => {
+                    const mOrders = orders.filter(o => o.customerUid === m.id);
+                    const completedOrders = mOrders.filter(o => o.status === 'completed');
+                    const totalSpend = completedOrders.reduce((sum, o) => sum + (o.totalPrice || 0), 0);
+                    return {
+                        ...m,
+                        orderCount: mOrders.length,
+                        avgSpend: mOrders.length > 0 ? Math.round(totalSpend / completedOrders.length || 0) : 0,
+                        totalSpend: totalSpend,
+                        lastOrder: mOrders[0] // orders 已按時間排序，第 0 筆即為最新
+                    };
+                }).sort((a, b) => b.orderCount - a.orderCount); // 預設按訂單數排序
+            }, [members, orders]);
+			
                     
             // 每分鐘更新一次時間，讓倒數計時器跳動
             useEffect(() => {
@@ -815,7 +878,8 @@
                                 {id:'sets',label:'套餐管理',icon:'Utensils'},
                                 {id:'customization',label:'客製化選項',icon:'Settings2'},
                                 {id:'materials',label:'原物料庫',icon:'PackageSearch'},
-                                {id:'coupons', label:'優惠券管理', icon:'Ticket'},
+								{id:'members', label:'會員管理', icon:'Users'},
+                                {id:'coupons', label:'優惠管理', icon:'Ticket'},
                                 {id:'settings',label:'營運設定',icon:'Sliders'}
                             ].map(item => (
                                 <button key={item.id} onClick={() => { setActiveTab(item.id); setMobileOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-xs lg:text-sm lg:py-4 transition-all ${activeTab === item.id ? 'bg-white text-[#5B2274] shadow-md' : 'text-purple-200 hover:text-white hover:bg-white/10'}`}>
@@ -843,252 +907,254 @@
                             
                             {/* Order Management Tab (Optimized V2) */}
                             {activeTab === 'orders' && (
-                                <div className="animate-fade-in pb-24 h-full flex flex-col relative">
-                                    
-                                    {/* 1. Header Area */}
-                                    <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-6 py-4 sticky top-0 z-30 -mx-6 lg:-mx-10 mt-[-2rem] mb-6 shadow-sm">
-                                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                                            
-                                            {/* Left: Title & Tabs */}
-                                            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full lg:w-auto">
-                                                <div>
-                                                    <h2 className="text-xl font-[900] text-slate-800 tracking-tight">訂單管理</h2>
-                                                    <p className="text-[11px] font-bold text-slate-400 mt-0.5 flex items-center gap-1.5">
-                                                        <Icon name="Calendar" size={12}/> 今日：{todayStr}
-                                                    </p>
-                                                </div>
-                                                
-                                                {/* Tab Switcher with Counts [Req 6] */}
-                                                <div className="flex gap-1 bg-slate-100 p-1 rounded-xl shadow-inner overflow-x-auto max-w-full">
-                                                    {[
-                                                        {id:'today', t:'今日現場', count: getTabCount('today')}, 
-                                                        {id:'future', t:'預約單', count: getTabCount('future')}, 
-                                                        {id:'history', t:'歷史紀錄', count: 0}
-                                                    ].map(t => (
-                                                        <button 
-                                                            key={t.id} 
-                                                            onClick={() => { 
-                                                                setOrderFilter(t.id); 
-                                                                // 切換到歷史紀錄時，預設顯示已完成；其他則顯示未完成
-                                                                setSubFilter(t.id === 'history' ? 'completed' : 'all'); 
-                                                            }} 
-                                                            className={`px-3 py-1.5 lg:px-4 lg:py-2 rounded-lg text-xs font-black transition-all flex items-center gap-2 whitespace-nowrap ${orderFilter===t.id?'bg-white text-slate-800 shadow-sm':'text-slate-500 hover:text-slate-700'}`}
-                                                        >
-                                                            {t.t}
-                                                            {t.count > 0 && <span className="bg-red-500 text-white px-1.5 rounded-full text-[9px]">{t.count}</span>}
+                                <div className="animate-fade-in pb-24 h-full flex flex-col">
+                                    <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-6 py-4 sticky top-0 z-30 -mx-6 lg:-mx-10 mt-[-2rem] mb-6">
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex gap-1 bg-slate-100 p-1 rounded-xl shadow-inner">
+                                                    {[{id:'today', t:'今日現場', c:getTabCount('today')}, {id:'future', t:'預約單', c:getTabCount('future')}, {id:'history', t:'歷史紀錄', c:0}].map(t => (
+                                                        <button key={t.id} onClick={() => { setOrderFilter(t.id); setSubFilter(t.id==='history'?'completed':'all'); }} className={`px-3 py-1.5 rounded-lg text-[11px] font-black transition-all flex items-center gap-1.5 ${orderFilter===t.id?'bg-white text-slate-800 shadow-sm':'text-slate-500 hover:text-slate-700'}`}>
+                                                            {t.t} {t.c > 0 && <span className="bg-red-500 text-white px-1 rounded-full text-[9px]">{t.c}</span>}
                                                         </button>
                                                     ))}
                                                 </div>
+                                                {orderFilter !== 'today' && <input type="date" className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-[11px] font-bold outline-none" value={orderFilter==='history'?historyDate:futureDate} onChange={e=>orderFilter==='history'?setHistoryDate(e.target.value):setFutureDate(e.target.value)} />}
                                             </div>
-
-                                            {/* Right: Date Picker & Search & Notify */}
-                                            <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto justify-end">
-                                                
-                                                {/* [Req 2] Date Switchers */}
-                                                {orderFilter === 'history' && (
-                                                    <div className="animate-scale-in flex items-center gap-2 bg-white px-2 py-1 rounded-lg border border-slate-200">
-                                                        <span className="text-[10px] font-bold text-slate-400">查詢日期</span>
-                                                        <input type="date" className="bg-transparent text-xs font-bold text-slate-700 outline-none" value={historyDate} onChange={(e) => setHistoryDate(e.target.value)} />
-                                                    </div>
-                                                )}
-                                                {orderFilter === 'future' && (
-                                                    <div className="animate-scale-in flex items-center gap-2 bg-white px-2 py-1 rounded-lg border border-slate-200">
-                                                        <span className="text-[10px] font-bold text-slate-400">預約日期</span>
-                                                        <input type="date" className="bg-transparent text-xs font-bold text-slate-700 outline-none" value={futureDate} onChange={(e) => setFutureDate(e.target.value)} min={tomorrowStr} />
-                                                    </div>
-                                                )}
-
-                                                <div className="relative group flex-1 lg:flex-none">
-                                                    <Icon name="Search" size={16} className="absolute left-3 top-2.5 text-slate-400 group-focus-within:text-[#5B2274] transition-colors"/>
-                                                    <input type="text" placeholder="搜尋..." className="w-full lg:w-48 bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-4 py-2 text-sm font-bold focus:bg-white outline-none transition-all focus:ring-2 focus:ring-purple-100" value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} />
-                                                </div>
-                                                
-                                                <div className="relative shrink-0">
-                                                    <button onClick={() => setIsNotifyOpen(true)} className="w-10 h-10 rounded-full bg-[#5B2274] text-white flex items-center justify-center shadow-lg shadow-purple-100 hover:scale-105 active:scale-95 transition-all">
-                                                        <Icon name="Bell" size={20}/>
-                                                    </button>
-                                                    {notifications.length > 0 && <div className="absolute top-0 right-0 w-3.5 h-3.5 bg-red-500 border-2 border-white rounded-full animate-pulse pointer-events-none"></div>}
-                                                </div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="relative"><Icon name="Search" size={14} className="absolute left-3 top-2.5 text-slate-300"/><input type="text" placeholder="搜尋..." className="bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-4 py-2 text-xs font-bold w-full sm:w-40 focus:bg-white outline-none" value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} /></div>
+                                                <button onClick={()=>setIsNotifyOpen(true)} className="w-9 h-9 rounded-full bg-[#5B2274] text-white flex items-center justify-center shadow-lg"><Icon name="Bell" size={18}/></button>
                                             </div>
                                         </div>
                                     </header>
 
-                                    {/* 2. Status Filter Bar [Req 5 - Consistent with Menu Mgr] */}
-                                    <div className="flex items-center gap-2 py-1 mb-6 overflow-x-auto no-scrollbar shrink-0">
-                                        <button onClick={()=>setSubFilter('all')} className={`px-5 py-2.5 rounded-xl font-bold text-xs lg:text-sm whitespace-nowrap transition-all shadow-sm border flex items-center gap-2 ${subFilter==='all' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200 hover:text-slate-800'}`}>
-                                            未完成 Focus <span className={`px-1.5 py-0.5 rounded text-[10px] ${subFilter==='all'?'bg-white/20 text-white':'bg-slate-100 text-slate-600'}`}>{getStatusCount('all')}</span>
-                                        </button>
-                                        
-                                        <div className="w-px h-6 bg-slate-200 mx-1 shrink-0"></div>
-
-                                        {['pending','confirmed','preparing','ready','completed','cancelled'].map(st => {
-                                            const style = STATUS_STYLE[st];
-                                            const isActive = subFilter === st;
-                                            return (
-                                                <button key={st} onClick={()=>setSubFilter(st)} className={`px-5 py-2.5 rounded-xl font-bold text-xs lg:text-sm whitespace-nowrap transition-all shadow-sm border flex items-center gap-2 ${isActive ? style.bg + ' ' + style.text + ' ' + style.border : 'bg-white text-slate-400 border-slate-100 hover:text-slate-600'}`}>
-                                                    <Icon name={style.icon} size={16}/> {style.label}
-                                                    {getStatusCount(st) > 0 && <span className={`px-1.5 py-0.5 rounded text-[10px] ${isActive ? 'bg-white/50' : 'bg-slate-100'}`}>{getStatusCount(st)}</span>}
-                                                </button>
-                                            );
-                                        })}
+                                    {/* 狀態切換條 - 縮小版 */}
+                                    <div className="flex items-center gap-1.5 mb-6 overflow-x-auto no-scrollbar py-1">
+                                        <button onClick={()=>setSubFilter('all')} className={`px-4 py-2 rounded-xl font-bold text-[11px] whitespace-nowrap transition-all border flex items-center gap-1.5 ${subFilter==='all' ? 'bg-slate-800 text-white' : 'bg-white text-slate-400'}`}>未完成 ({getStatusCount('all')})</button>
+                                        {['pending','confirmed','preparing','ready','completed','cancelled'].map(st => (
+                                            <button key={st} onClick={()=>setSubFilter(st)} className={`px-3 py-2 rounded-xl font-bold text-[11px] whitespace-nowrap transition-all border flex items-center gap-1.5 ${subFilter===st ? STATUS_STYLE[st].bg + ' ' + STATUS_STYLE[st].text + ' border-current' : 'bg-white text-slate-400 border-slate-100'}`}>
+                                                {STATUS_STYLE[st].label} ({getStatusCount(st)})
+                                            </button>
+                                        ))}
                                     </div>
 
-                                    {/* 3. Order Grid [Req 3, 7] */}
-                                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 pb-24">
+                                    {/* 訂單卡片網格 - 維持原設計按鈕 */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                                         {filteredOrders.map(order => {
-                                            const statusKey = order.status in STATUS_STYLE ? order.status : 'pending';
-                                            const style = STATUS_STYLE[statusKey];
-                                            const isUrgent = order.userInfo?.pickupTime === 'ASAP';
-                                            const itemCount = order.items?.reduce((sum, item) => sum + item.qty, 0) || 0;
-                                            
+                                            const st = STATUS_STYLE[order.status] || STATUS_STYLE.pending;
                                             return (
-                                                <div key={order.id} className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm hover:shadow-xl transition-all cursor-pointer flex flex-col group animate-fade-in relative" onClick={()=>setModal({type:'edit_order', data:order})}>
-                                                    {/* 狀態邊條 */}
-                                                    <div className={`h-2 w-full ${style.bg.replace('50', '500').replace('100', '500')}`}></div>
-                                                    
-                                                    <div className="p-6 flex-1 space-y-4">
+                                                <div key={order.id} className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm hover:shadow-xl transition-all cursor-pointer flex flex-col group animate-fade-in" onClick={()=>setModal({type:'edit_order', data:order})}>
+                                                    <div className={`h-1.5 w-full ${st.bg.replace('50', '500')}`}></div>
+                                                    <div className="p-6 flex-1 space-y-3">
                                                         <div className="flex justify-between items-start">
-                                                            <div className="flex-1">
-                                                                <div className="flex items-center gap-2 mb-2">
-                                                                    <span className={`text-[10px] font-black px-3 py-1 rounded-full border flex items-center gap-1 ${style.bg} ${style.text} ${style.border}`}>
-                                                                        <Icon name={style.icon} size={12}/> {style.label}
-                                                                    </span>
-                                                                    <span className="text-[10px] font-bold text-slate-300 tracking-widest uppercase">#{order.orderId?.slice(-4)}</span>
-                                                                </div>
-                                                                <div className="flex items-center gap-3">
-                                                                    <div className={`text-4xl font-[1000] tracking-tighter ${isUrgent ? 'text-red-500' : 'text-slate-800'}`}>
-                                                                        {order.userInfo?.pickupTime}
-                                                                    </div>
-                                                                    {isUrgent && <span className="px-2 py-1 bg-red-500 text-white text-[10px] font-black rounded-lg animate-pulse">URGENT</span>}
-                                                                </div>
+                                                            <div>
+                                                                <div className="flex items-center gap-2 mb-1"><span className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${st.bg} ${st.text} ${st.border}`}>{st.label}</span><span className="text-[9px] font-bold text-slate-300 uppercase">#{order.orderId?.slice(-4)}</span></div>
+                                                                <div className="text-3xl font-[1000] text-slate-800 tracking-tighter">{order.userInfo?.pickupTime}</div>
+                                                                <div className="text-[10px] font-bold text-slate-400 mt-0.5 flex items-center gap-1"><Icon name="Calendar" size={10}/> {order.userInfo?.pickupDate}</div>
                                                             </div>
                                                             <div className="text-right">
-                                                                <div className="text-3xl font-[1000] text-[#5B2274] tracking-tighter">${order.totalPrice}</div>
-                                                                <div className="text-[10px] font-black text-slate-300 uppercase tracking-widest mt-1">{itemCount} 品項</div>
+                                                                <div className="text-2xl font-[1000] text-[#5B2274] tracking-tighter">${order.totalPrice}</div>
+                                                                <div className="text-[9px] font-black text-slate-300 uppercase tracking-widest mt-0.5">{order.items?.length} 品項</div>
                                                             </div>
                                                         </div>
-                                        
-                                                        <div className="pt-4 border-t border-dashed border-slate-100 flex items-center justify-between">
-                                                            <div className="flex items-center gap-3">
-                                                                <div className="w-10 h-10 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400 font-black border border-slate-100 shadow-inner">
-                                                                    {order.userInfo?.name?.[0]}
-                                                                </div>
-                                                                <div className="min-w-0">
-                                                                    <div className="text-sm font-black text-slate-700 truncate">{order.userInfo?.name}</div>
-                                                                    <div className="text-xs text-slate-400 font-bold tracking-tight">{order.userInfo?.phone}</div>
-                                                                </div>
-                                                            </div>
-                                                            <div className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 group-hover:bg-[#5B2274] group-hover:text-white transition-all">
-                                                                <Icon name="ChevronRight" size={20}/>
-                                                            </div>
+                                                        <div className="pt-3 border-t border-dashed border-slate-100 flex items-center justify-between">
+                                                            <div className="text-xs font-black text-slate-700">{order.userInfo?.name} <span className="text-[10px] text-slate-400 font-bold ml-1">{order.userInfo?.phone}</span></div>
+                                                            <Icon name="ChevronRight" size={14} className="text-slate-200 group-hover:text-[#5B2274]"/>
                                                         </div>
                                                     </div>
-                                        
-                                                    {/* 底部快速操作按鈕 (僅非結案訂單顯示) */}
+                                                    {/* 快速按鈕 - 直接更新狀態 */}
                                                     {!['completed', 'cancelled'].includes(order.status) && (
-                                                        <div className="grid grid-cols-2 divide-x divide-slate-100 border-t border-slate-100 bg-slate-50/30">
-                                                            {order.status === 'pending' && (
-                                                                <>
-                                                                    <button onClick={(e)=>{e.stopPropagation(); if(confirm('拒絕接單？')) handleUpdateOrderStatus(order.id, 'cancelled');}} className="py-4 text-slate-400 font-black text-xs hover:bg-red-50 hover:text-red-500 transition-all uppercase tracking-widest">拒絕</button>
-                                                                    <button onClick={(e)=>{e.stopPropagation(); handleUpdateOrderStatus(order.id, 'confirmed');}} className="py-4 bg-blue-600 text-white font-[1000] text-xs hover:bg-blue-700 transition-all shadow-inner tracking-widest">接單 ACCEPT</button>
-                                                                </>
-                                                            )}
-                                                            {order.status === 'confirmed' && <button onClick={(e)=>{e.stopPropagation(); handleUpdateOrderStatus(order.id, 'preparing');}} className="col-span-2 py-4 bg-orange-500 hover:bg-orange-600 transition-colors text-white font-[1000] text-xs flex items-center justify-center gap-2"><Icon name="Flame" size={14}/> 開始製作</button>}
-                                                            {order.status === 'preparing' && <button onClick={(e)=>{e.stopPropagation(); handleUpdateOrderStatus(order.id, 'ready');}} className="col-span-2 py-4 bg-emerald-500 hover:bg-emerald-600 transition-colors text-white font-[1000] text-xs flex items-center justify-center gap-2"><Icon name="Check" size={14}/> 製作完成</button>}
-                                                            {order.status === 'ready' && <button onClick={(e)=>{e.stopPropagation(); handleUpdateOrderStatus(order.id, 'completed');}} className="col-span-2 py-4 bg-[#5B2274] hover:bg-purple-800 transition-colors text-white font-[1000] text-xs flex items-center justify-center gap-2"><Icon name="ShoppingBag" size={14}/> 完成取餐結案</button>}
+                                                        <div className="grid grid-cols-2 divide-x divide-slate-100 border-t border-slate-100 bg-slate-50/50">
+                                                            {order.status === 'pending' && (<><button onClick={(e)=>{e.stopPropagation(); if(confirm('拒絕？')) handleUpdateOrderStatus(order.id, 'cancelled');}} className="py-4 text-slate-400 font-bold text-[11px] hover:bg-red-50">拒絕</button><button onClick={(e)=>{e.stopPropagation(); handleUpdateOrderStatus(order.id, 'confirmed');}} className="py-4 bg-blue-600 text-white font-black text-[11px]">確認接單</button></>)}
+                                                            {order.status === 'confirmed' && <button onClick={(e)=>{e.stopPropagation(); handleUpdateOrderStatus(order.id, 'preparing');}} className="col-span-2 py-4 bg-orange-500 text-white font-black text-[11px]">開始製作</button>}
+                                                            {order.status === 'preparing' && <button onClick={(e)=>{e.stopPropagation(); handleUpdateOrderStatus(order.id, 'ready');}} className="col-span-2 py-4 bg-emerald-500 text-white font-black text-[11px]">製作完成</button>}
+                                                            {order.status === 'ready' && <button onClick={(e)=>{e.stopPropagation(); handleUpdateOrderStatus(order.id, 'completed');}} className="col-span-2 py-4 bg-[#5B2274] text-white font-black text-[11px]">完成取餐</button>}
                                                         </div>
                                                     )}
                                                 </div>
                                             );
                                         })}
-                                        {filteredOrders.length === 0 && (
-                                            <div className="col-span-full py-20 flex flex-col items-center justify-center text-slate-300">
-                                                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4"><Icon name="Inbox" size={32}/></div>
-                                                <p className="font-bold text-sm">此條件下沒有訂單</p>
-                                            </div>
-                                        )}
                                     </div>
-
-                                    {/* Notification Drawer (With Delete [Req 1]) */}
-                                    {isNotifyOpen && (
-                                        <div className="fixed inset-0 z-[60] flex justify-end">
-                                            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setIsNotifyOpen(false)}></div>
-                                            <div className="bg-white w-full max-w-sm h-full shadow-2xl relative z-10 flex flex-col animate-slide-in">
-                                                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-[#5B2274] text-white">
-                                                    <div className="flex items-center gap-3"><Icon name="Bell" size={20}/><h3 className="font-[900] text-lg">系統通知</h3></div>
-                                                    <button onClick={() => setIsNotifyOpen(false)} className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center hover:bg-white/30 transition-colors"><Icon name="X" size={18}/></button>
-                                                </div>
-                                                <div className="flex-1 overflow-y-auto p-4 space-y-3 no-scrollbar bg-slate-50/50">
-                                                    {notifications.map(n => (
-                                                        <div key={n.id} className="p-4 rounded-2xl bg-white border border-slate-100 shadow-sm hover:border-[#5B2274] transition-all cursor-pointer relative group pr-8">
-                                                            <div onClick={() => handleNotificationClick(n.jumpStatus)}>
-                                                                <div className="flex justify-between items-start mb-1">
-                                                                    <span className="text-[10px] font-black px-2 py-0.5 rounded bg-blue-50 text-blue-600">{n.title}</span>
-                                                                    <span className="text-[10px] font-bold text-slate-400">{n.time}</span>
-                                                                </div>
-                                                                <p className="text-sm font-bold text-slate-700 leading-snug">{n.desc}</p>
-                                                            </div>
-                                                            <button onClick={(e) => { e.stopPropagation(); deleteNotification(n.id); }} className="absolute top-3 right-3 text-slate-300 hover:text-red-500 p-1"><Icon name="X" size={14}/></button>
-                                                        </div>
-                                                    ))}
-                                                    {notifications.length === 0 && <div className="text-center text-slate-400 text-xs font-bold py-10">目前無新通知</div>}
-                                                </div>
-                                            </div>
+                                </div>
+                            )}
+							
+							{/* Member Management Tab */}
+                            {activeTab === 'members' && (
+                                <div className="animate-fade-in space-y-6">
+                                    <header className="flex justify-between items-center">
+                                        <div>
+                                            <h2 className="text-2xl font-[900] text-slate-800 tracking-tight">會員管理</h2>
+                                            <p className="text-xs font-bold text-slate-400 mt-1">共計 {members.length} 位 LINE 登錄顧客</p>
                                         </div>
-                                    )}
+                                        <div className="relative group">
+                                            <Icon name="Search" size={16} className="absolute left-3 top-2.5 text-slate-300"/>
+                                            <input type="text" placeholder="搜尋會員姓名/電話..." className="bg-white border border-slate-200 rounded-xl pl-9 pr-4 py-2 text-sm font-bold w-64 focus:ring-2 focus:ring-purple-100 outline-none" value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} />
+                                        </div>
+                                    </header>
+
+                                    <div className="grid grid-cols-1 gap-4">
+                                        <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm">
+                                            <table className="w-full text-left border-collapse">
+                                                <thead>
+                                                    <tr className="bg-slate-50 border-b border-slate-100">
+                                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">顧客資訊</th>
+                                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">訂餐次數</th>
+                                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">平均客單</th>
+                                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">累積消費</th>
+                                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">操作</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-50">
+                                                    {memberStats.filter(m => !searchQuery || m.displayName?.includes(searchQuery) || m.phone?.includes(searchQuery)).map(m => (
+                                                        <tr key={m.id} className="hover:bg-slate-50/50 transition-colors group">
+                                                            <td className="px-6 py-5">
+                                                                <div className="flex items-center gap-3">
+                                                                    <div className="w-10 h-10 rounded-2xl bg-purple-50 flex items-center justify-center text-[#5B2274] font-black border border-purple-100">
+                                                                        {m.displayName?.[0] || 'U'}
+                                                                    </div>
+                                                                    <div>
+                                                                        <div className="text-sm font-black text-slate-700">{m.displayName || '未設定名稱'}</div>
+                                                                        <div className="text-[10px] text-slate-400 font-bold">{m.phone || '無電話資訊'}</div>
+                                                                    </div>
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-6 py-5 text-center font-black text-slate-600">{m.orderCount} 次</td>
+                                                            <td className="px-6 py-5 text-center font-black text-slate-600">${m.avgSpend}</td>
+                                                            <td className="px-6 py-5 text-right font-[1000] text-[#5B2274] tracking-tight">${m.totalSpend}</td>
+                                                            <td className="px-6 py-5 text-right">
+                                                                <button onClick={() => setModal({type: 'member_detail', data: m})} className="px-4 py-2 rounded-xl bg-slate-100 text-slate-500 font-black text-[11px] hover:bg-[#5B2274] hover:text-white transition-all shadow-sm">
+                                                                    檢視詳情
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                            {members.length === 0 && <div className="py-20 text-center text-slate-300 font-bold">暫無會員資料</div>}
+                                        </div>
+                                    </div>
                                 </div>
                             )}
                             
-                            {/* Coupon Management Tab */}
+                            {/* Promotion Management Tab (優惠管理) */}
                             {activeTab === 'coupons' && (
-                                <div className="animate-fade-in space-y-5">
-                                    <div className="flex justify-between items-center">
-                                        <h2 className="text-2xl font-[900] text-slate-800 tracking-tight">優惠券管理</h2>
-                                        <Button onClick={() => setModal({type: 'coupon', data: { code: '', title: '', desc: '', discount: 0, minSpend: 0, expiry: '' }})} icon="Plus">新增優惠券</Button>
-                                    </div>
-                                    
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                                        {coupons.map((c) => {
-                                            const isExpired = new Date(c.expiry) < new Date();
-                                            return (
-                                                <div key={c.id} className={`glass-panel p-5 rounded-2xl relative group ${isExpired ? 'opacity-60 grayscale' : ''}`}>
-                                                    <div className="flex justify-between items-start mb-3">
-                                                        <div className="bg-purple-50 text-[#5B2274] px-3 py-1 rounded-lg font-black text-sm tracking-wider">{c.code}</div>
-                                                        <div className={`text-xs font-bold px-2 py-1 rounded ${isExpired ? 'bg-red-100 text-red-500' : 'bg-green-100 text-green-600'}`}>
-                                                            {isExpired ? '已過期' : '有效'}
-                                                        </div>
-                                                    </div>
-                                                    <h3 className="font-[800] text-lg text-slate-800 mb-1">{c.title}</h3>
-                                                    <p className="text-sm text-slate-500 mb-4 h-10 overflow-hidden">{c.desc}</p>
-                                                    
-                                                    <div className="flex justify-between items-center text-sm font-bold text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100 mb-4">
-                                                        <div className="flex flex-col">
-                                                            <span className="text-[10px] text-slate-400 uppercase">折扣金額</span>
-                                                            <span className="text-red-500 text-lg">-${c.discount}</span>
-                                                        </div>
-                                                        <div className="w-px h-8 bg-slate-200"></div>
-                                                        <div className="flex flex-col text-right">
-                                                            <span className="text-[10px] text-slate-400 uppercase">最低消費</span>
-                                                            <span>${c.minSpend}</span>
-                                                        </div>
-                                                    </div>
-                                                    <div className="text-xs font-bold text-slate-400 mb-4 flex items-center gap-1">
-                                                        <Icon name="Calendar" size={14} /> 到期日：{c.expiry}
-                                                    </div>
+                                <div className="animate-fade-in space-y-8 pb-24">
+                                    {/* A. 集點卡獎勵設定區 */}
+                                    <section className="space-y-4">
+                                        <div className="flex items-center justify-between px-2">
+                                            <div>
+                                                <h3 className="text-lg font-[1000] text-slate-800 tracking-tight">集點獎勵系統</h3>
+                                                <p className="text-[11px] font-bold text-slate-400">設定顧客消費自動累點與兌換規則</p>
+                                            </div>
+                                            <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-2xl border border-slate-200 shadow-sm">
+                                                <span className="text-xs font-black text-slate-500">{settings.pointsEnabled ? '啟用中' : '已關閉'}</span>
+                                                <ToggleSwitch 
+                                                    checked={settings.pointsEnabled} 
+                                                    onChange={(val) => setSettings({...settings, pointsEnabled: val})} 
+                                                />
+                                            </div>
+                                        </div>
 
-                                                    <div className="flex gap-2 border-t border-slate-100 pt-3">
-                                                        <Button size="small" variant="secondary" className="flex-1" icon="Edit3" onClick={() => setModal({type: 'coupon', data: c})}>編輯</Button>
-                                                        <Button size="small" variant="danger" className="flex-1" icon="Trash2" onClick={() => handleDelete('coupon', c.id)}>刪除</Button>
+                                        <div className={`glass-panel p-6 rounded-[2rem] border-2 transition-all ${settings.pointsEnabled ? 'border-purple-100 bg-white' : 'border-slate-100 bg-slate-50/50 grayscale opacity-70'}`}>
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                                                {/* 規則 1 */}
+                                                <div className="space-y-2">
+                                                    <div className="flex items-center gap-2 text-[#5B2274]">
+                                                        <Icon name="Coins" size={16}/>
+                                                        <span className="text-[11px] font-black uppercase tracking-widest">累積規則</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm font-bold text-slate-400">每消費滿</span>
+                                                        <input type="number" className="w-20 input-compact rounded-xl font-black text-center text-lg" value={settings.spendPerPoint || 100} onChange={e => setSettings({...settings, spendPerPoint: parseInt(e.target.value)||0})} />
+                                                        <span className="text-sm font-bold text-slate-700">元，得 1 點</span>
                                                     </div>
                                                 </div>
-                                            );
-                                        })}
-                                        {coupons.length === 0 && (
-                                            <div className="col-span-full text-center py-12 text-slate-400 font-bold bg-white/50 rounded-2xl border-2 border-dashed border-slate-200">
-                                                尚未建立優惠券
+                                                {/* 規則 2 */}
+                                                <div className="space-y-2 border-l border-slate-100 md:pl-8">
+                                                    <div className="flex items-center gap-2 text-amber-500">
+                                                        <Icon name="Trophy" size={16}/>
+                                                        <span className="text-[11px] font-black uppercase tracking-widest">兌換門檻</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm font-bold text-slate-400">累積滿</span>
+                                                        <input type="number" className="w-20 input-compact rounded-xl font-black text-center text-lg" value={settings.pointsToReward || 10} onChange={e => setSettings({...settings, pointsToReward: parseInt(e.target.value)||0})} />
+                                                        <span className="text-sm font-bold text-slate-700">點，可兌換</span>
+                                                    </div>
+                                                </div>
+                                                {/* 規則 3 */}
+                                                <div className="space-y-2 border-l border-slate-100 md:pl-8">
+                                                    <div className="flex items-center gap-2 text-emerald-500">
+                                                        <Icon name="Gift" size={16}/>
+                                                        <span className="text-[11px] font-black uppercase tracking-widest">獎勵內容</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm font-bold text-slate-400">獲得現金折扣</span>
+                                                        <input type="number" className="w-20 input-compact rounded-xl font-black text-center text-lg text-emerald-600" value={settings.pointRewardValue || 50} onChange={e => setSettings({...settings, pointRewardValue: parseInt(e.target.value)||0})} />
+                                                        <span className="text-sm font-bold text-slate-700">元</span>
+                                                    </div>
+                                                </div>
                                             </div>
+                                            {settings.pointsEnabled && (
+                                                <div className="mt-6 pt-4 border-t border-slate-50 flex justify-end">
+                                                    <Button size="small" variant="primary" icon="Save" onClick={() => { dbOp('set', 'settings', 'config', settings); alert('✅ 集點規則已儲存'); }}>儲存設定</Button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </section>
+
+                                    {/* B. 行銷優惠券區 (優化後的卡片清單) */}
+                                    <section className="space-y-4">
+                                        <div className="flex items-center justify-between px-2">
+                                            <div>
+                                                <h3 className="text-lg font-[1000] text-slate-800 tracking-tight">優惠代碼管理</h3>
+                                                <p className="text-[11px] font-bold text-slate-400">建立指定折扣碼與活動</p>
+                                            </div>
+                                            <Button onClick={() => setModal({type: 'coupon', data: { code: '', title: '', desc: '', discount: 0, type: 'fixed', minSpend: 0, expiry: '', startDate: getTaiwanDateStr() }})} icon="Plus" size="small">新增優惠券</Button>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                            {optimizedCoupons.map((c) => (
+                                                <div key={c.id} className={`relative flex h-32 rounded-[1.5rem] border border-slate-200 overflow-hidden shadow-sm transition-all bg-white group hover:border-purple-200 ${c.status === 'expired' ? 'opacity-60 grayscale' : ''}`}>
+                                                    {/* 左側折扣額 */}
+                                                    <div className={`w-28 flex flex-col items-center justify-center border-r border-dashed border-slate-100 ${c.status === 'expired' ? 'bg-slate-50 text-slate-400' : 'bg-purple-50 text-[#5B2274]'}`}>
+                                                        <div className="text-2xl font-[1000] tracking-tighter">
+                                                            {c.type === 'percent' ? `${c.discount}` : c.discount}
+                                                            <span className="text-xs ml-0.5">{c.type === 'percent' ? '%' : '$'}</span>
+                                                        </div>
+                                                        <div className="text-[9px] font-black uppercase opacity-60">OFF</div>
+                                                    </div>
+
+                                                    {/* 右側內容 */}
+                                                    <div className="flex-1 p-4 flex flex-col justify-between">
+                                                        <div className="flex justify-between items-start">
+                                                            <div>
+                                                                <h4 className="font-black text-slate-700 text-sm">{c.title}</h4>
+                                                                <div className="text-[10px] font-mono text-slate-400 mt-0.5 tracking-widest uppercase">{c.code}</div>
+                                                            </div>
+                                                            <div className="flex gap-1">
+                                                                <button onClick={() => setModal({type: 'coupon', data: c})} className="p-1.5 text-slate-300 hover:text-[#5B2274] transition-colors"><Icon name="Edit3" size={14}/></button>
+                                                                <button onClick={() => handleDelete('coupon', c.id)} className="p-1.5 text-slate-300 hover:text-red-500 transition-colors"><Icon name="Trash2" size={14}/></button>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center justify-between mt-auto">
+                                                            <div className="flex items-center gap-3">
+                                                                <span className="text-[9px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">低消 ${c.minSpend}</span>
+                                                                <span className="text-[9px] font-bold text-slate-400">已使用 {c.usageCount} 次</span>
+                                                            </div>
+                                                            <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-md ${
+                                                                c.status === 'active' ? 'bg-emerald-100 text-emerald-600' : 
+                                                                (c.status === 'scheduled' ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-400')
+                                                            }`}>
+                                                                {c.status === 'active' ? '進行中' : (c.status === 'scheduled' ? '排程中' : '已結束')}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        {optimizedCoupons.length === 0 && (
+                                            <div className="py-12 text-center text-slate-300 font-bold border-2 border-dashed border-slate-100 rounded-[2rem]">尚無優惠券設定</div>
                                         )}
-                                    </div>
+                                    </section>
                                 </div>
                             )}
 
@@ -1383,400 +1449,96 @@
                         </div>
                     )}
 
-                    {/* Modals */}
+                    {/* Modals & Drawers */}
                     {modal && (
                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
                             <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setModal(null)} />
-                            <div className="bg-white w-full max-w-xl max-h-[90vh] rounded-2xl shadow-2xl relative z-10 flex flex-col overflow-hidden animate-fade-in">
-                                {/* ... Modal Header ... */}
-                                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white"><h3 className="text-lg font-[900] text-slate-800">{modal.type === 'cat' ? '分類設定' : (modal.type === 'prod' ? '餐點詳情' : (modal.type === 'tags' ? '商品標籤設定' : (modal.type === 'group_mgmt' ? '組別管理' : (modal.type === 'item_editor' ? '項目編輯' : (modal.type === 'set' ? '套餐配置' : (modal.type === 'coupon' ? '優惠券設定' : '設定'))))))}</h3><button onClick={() => setModal(null)} className="w-8 h-8 rounded-full bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-500"><Icon name="X" size={18}/></button></div>
-                                
-                                <div className="p-6 overflow-y-auto no-scrollbar space-y-6 bg-slate-50/50">
-                                    {/* ... Modal Contents ... */}
-                                    {modal.type === 'group_mgmt' && (
-                                        <div className="space-y-4">
-                                            <div className="p-4 bg-blue-50 text-blue-800 rounded-xl text-xs lg:text-sm font-medium flex items-start gap-2 border border-blue-100">
-                                                <Icon name="Info" size={18} className="mt-0.5 shrink-0"/>
-                                                <p>在此管理組別。您可以排序、重新命名或刪除組別。修改名稱時，該組別下的所有項目會自動更新。</p>
-                                            </div>
-                                            <div className="space-y-2">
-                                                <div className="flex gap-2 pb-2 border-b border-slate-200">
-                                                    <input id="newGroupName" className="input-compact flex-1" placeholder="新增組別名稱..." />
-                                                    <Button size="small" onClick={()=>{
-                                                        const name = document.getElementById('newGroupName').value;
-                                                        if(name) {
-                                                            const groups = getGroups(modal.dataType);
-                                                            saveGroups(modal.dataType, [...groups, { id: Date.now(), name, sortOrder: groups.length }]);
-                                                            document.getElementById('newGroupName').value = '';
-                                                        }
-                                                    }}>新增</Button>
-                                                </div>
-                                                <div className="space-y-2 max-h-[60vh] overflow-y-auto">
-                                                    {getGroups(modal.dataType).map((g, idx) => (
-                                                        <div key={g.id} className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 flex items-center gap-2">
-                                                            <div className="flex flex-col gap-0.5">
-                                                                <SortButton direction="up" disabled={idx === 0} onClick={() => handleSortGroup(modal.dataType, idx, 'up')} />
-                                                                <SortButton direction="down" disabled={idx === getGroups(modal.dataType).length - 1} onClick={() => handleSortGroup(modal.dataType, idx, 'down')} />
-                                                            </div>
-                                                            
-                                                            {/* ★★★ 修改重點：原本只有一個 input，現在要改成包含 Min/Max 設定的區塊 ★★★ */}
-                                                            <div className="flex-1 space-y-2">
-                                                                {/* 1. 群組名稱 */}
-                                                                <BlurInput className="input-compact font-bold" value={g.name} onSave={(val) => handleRenameGroup(modal.dataType, g.name, val)} />
-                                                                
-                                                                {/* 2. 新增：Min/Max 設定 (只在客製化選項 dataType === 'addons' 時顯示) */}
-                                                                {modal.dataType === 'addons' && (
-                                                                    <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
-                                                                        <label className="text-[10px] text-slate-500 font-bold whitespace-nowrap">至少選</label>
-                                                                        <input 
-                                                                            type="number" 
-                                                                            className="w-14 input-compact py-1 px-1 text-center font-bold text-sm h-8" 
-                                                                            value={g.minSelect !== undefined ? g.minSelect : (g.isRequired ? 1 : 0)} 
-                                                                            onChange={(e) => {
-                                                                                const groups = [...getGroups('addons')];
-                                                                                groups[idx].minSelect = parseInt(e.target.value) || 0;
-                                                                                saveGroups('addons', groups);
-                                                                            }} 
-                                                                        />
-                                                                        <label className="text-[10px] text-slate-500 font-bold whitespace-nowrap ml-2">至多選</label>
-                                                                        <input 
-                                                                            type="number" 
-                                                                            className="w-14 input-compact py-1 px-1 text-center font-bold text-sm h-8" 
-                                                                            value={g.maxSelect !== undefined ? g.maxSelect : 99} 
-                                                                            onChange={(e) => {
-                                                                                const groups = [...getGroups('addons')];
-                                                                                groups[idx].maxSelect = parseInt(e.target.value) || 99;
-                                                                                saveGroups('addons', groups);
-                                                                            }} 
-                                                                        />
-                                                                        <span className="text-[10px] text-slate-400 ml-auto">
-                                                                            {g.maxSelect === 1 ? '(單選)' : '(多選)'}
-                                                                        </span>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                            <button onClick={() => handleCloneGroup(modal.dataType, g.name)} className="p-2 text-blue-400 hover:text-blue-600" title="複製組別"><Icon name="Copy" size={16}/></button>
-                                                            <button onClick={() => handleDeleteGroup(modal.dataType, g.name)} className="p-2 text-red-400 hover:text-red-600" title="刪除組別"><Icon name="Trash2" size={16}/></button>
-                                                        </div>
-                                                    ))}
-                                                    {getGroups(modal.dataType).length === 0 && <div className="text-center text-slate-400 py-4">無自訂組別</div>}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-                                    {modal.type === 'item_editor' && (
-                                        <div className="space-y-4 bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
-                                            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">名稱</label><input className="w-full input-compact rounded-lg font-bold" value={modal.data.name} onChange={e => setModal({...modal, data: {...modal.data, name: e.target.value}})} /></div>
-                                            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">組別</label><CustomSelect value={modal.data.category} options={getGroups(modal.dataType).map(g => ({ value: g.name, label: g.name }))} onChange={val => setModal({...modal, data: {...modal.data, category: val}})} allowCustom={true} placeholder="選擇或輸入新組別..." /></div>
-                                            {modal.dataType === 'addons' && (
-                                                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">價格</label><input type="number" className="w-full input-compact rounded-lg font-bold" value={modal.data.price} onChange={e => setModal({...modal, data: {...modal.data, price: parseInt(e.target.value)||0}})} /></div>
-                                            )}
-                                            {modal.dataType === 'materials' && (
-                                                <div className="flex items-center gap-2 pt-2"><ToggleSwitch checked={!modal.data.isOut} variant="danger" onChange={c => setModal({...modal, data: {...modal.data, isOut: !c.target.checked}})} /><span className={`font-bold ${modal.data.isOut ? 'text-red-500' : 'text-slate-500'}`}>{modal.data.isOut ? '目前缺貨' : '供應中'}</span></div>
-                                            )}
-                                        </div>
-                                    )}
-                                    {modal.type === 'tags' && (
-                                        <div className="space-y-6">
-                                            <div className="p-4 bg-blue-50 text-blue-800 rounded-xl text-xs lg:text-sm font-medium flex items-start gap-2 border border-blue-100">
-                                                <Icon name="Info" size={18} className="mt-0.5 shrink-0"/>
-                                                <p>在此設定商品標籤（如：人氣、新品、辣味等）。設定後可於「餐點詳情」中勾選使用。</p>
-                                            </div>
-                                            <div className="glass-panel p-6 rounded-2xl space-y-4 bg-white">
-                                                <div className="flex flex-wrap gap-2 mb-2">
-                                                    {(settings.productTags || []).map((tag, idx) => (
-                                                        <div key={idx} className={`px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm font-bold shadow-sm ${TAG_COLORS[tag.color]}`}>
-                                                            <span>{tag.label}</span>
-                                                            <button onClick={()=>{ const n = [...settings.productTags]; n.splice(idx, 1); setSettings({...settings, productTags: n}); }} className="hover:text-black/50"><Icon name="X" size={14}/></button>
-                                                        </div>
-                                                    ))}
-                                                    {(settings.productTags || []).length === 0 && <span className="text-slate-400 text-sm">暫無標籤</span>}
-                                                </div>
-                                                <div className="flex gap-2 items-center pt-4 border-t border-slate-100">
-                                                    <input id="newTagNameModal" className="input-compact flex-1" placeholder="新標籤名稱" />
-                                                    <select id="newTagColorModal" className="input-compact w-24">
-                                                        <option value="red">紅</option><option value="orange">橘</option><option value="green">綠</option><option value="blue">藍</option><option value="purple">紫</option><option value="black">黑</option>
-                                                    </select>
-                                                    <Button size="small" variant="secondary" className="h-full" onClick={()=>{ 
-                                                        const name = document.getElementById('newTagNameModal').value; 
-                                                        const color = document.getElementById('newTagColorModal').value;
-                                                        if(name) { 
-                                                            setSettings({...settings, productTags: [...(settings.productTags||[]), {id: Date.now(), label: name, color}]}); 
-                                                            document.getElementById('newTagNameModal').value = '';
-                                                        }
-                                                    }}>新增</Button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-                                    {modal.type === 'coupon' && (
-                                        <div className="space-y-4 bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">優惠代碼 (必填)</label><input className="w-full input-compact rounded-lg font-bold" value={modal.data.code} onChange={e => setModal({...modal, data: {...modal.data, code: e.target.value.toUpperCase()}})} placeholder="例如: SAVE50" /></div>
-                                                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">到期日</label><input type="date" className="w-full input-compact rounded-lg font-bold" value={modal.data.expiry} onChange={e => setModal({...modal, data: {...modal.data, expiry: e.target.value}})} /></div>
-                                            </div>
-                                            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">標題 (顯示給客人)</label><input className="w-full input-compact rounded-lg font-bold" value={modal.data.title} onChange={e => setModal({...modal, data: {...modal.data, title: e.target.value}})} placeholder="例如: 新客見面禮" /></div>
-                                            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">描述</label><textarea className="w-full input-compact rounded-lg font-bold h-20 resize-none" value={modal.data.desc} onChange={e => setModal({...modal, data: {...modal.data, desc: e.target.value}})} placeholder="例如: 首次下單現折 $50"></textarea></div>
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">折扣金額 ($)</label><input type="number" className="w-full input-compact rounded-lg font-bold text-red-500" value={modal.data.discount} onChange={e => setModal({...modal, data: {...modal.data, discount: parseInt(e.target.value)||0}})} /></div>
-                                                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">最低消費 ($)</label><input type="number" className="w-full input-compact rounded-lg font-bold" value={modal.data.minSpend} onChange={e => setModal({...modal, data: {...modal.data, minSpend: parseInt(e.target.value)||0}})} /></div>
-                                            </div>
-                                        </div>
-                                    )}
-                                    {modal.type === 'prod' && (
-                                        <>
-                                            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 space-y-4">
-                                                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">名稱</label><input className="w-full input-compact rounded-lg font-bold" value={modal.data.name} onChange={e => setModal({...modal, data: {...modal.data, name: e.target.value}})} /></div>
-                                                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">分類</label><CustomSelect value={modal.data.categoryId} options={categories.map(c => ({ value: c.id, label: c.name }))} onChange={val => setModal({...modal, data: {...modal.data, categoryId: val}})} /></div>
-                                                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">標籤</label><MultiSelect value={modal.data.tags || []} options={(settings.productTags || []).map(t => ({value: t.id, label: t.label}))} onChange={val => setModal({...modal, data: {...modal.data, tags: val}})} placeholder="選擇標籤..." /></div>
-                                                <div className="space-y-2 pt-2">
-                                                    <label className="text-[10px] font-bold text-slate-500 uppercase flex justify-between"><span>規格與價格</span><button onClick={()=>{ let n = [...(modal.data.variants||[])]; if(n.length === 0) { n = [{name: '原味/單一', price: modal.data.price, materials: []}, {name: '新規格', price: modal.data.price, materials: []}]; } else { n.push({name: '新規格', price: 0, materials: []}); } setModal({...modal, data: {...modal.data, variants: n}}); }} className="text-[#5B2274] hover:underline">+ 新增規格</button></label>
-                                                    
-                                                    {(!modal.data.variants || modal.data.variants.length === 0) && (
-                                                        <div className="space-y-2">
-                                                            <div className="flex gap-2"><div className="bg-slate-100 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-500 flex items-center justify-center w-24">單一規格</div><input type="number" className="flex-1 input-compact rounded-lg font-bold" value={modal.data.price} onChange={e => setModal({...modal, data: {...modal.data, price: parseInt(e.target.value)||0}})} placeholder="價格" /></div>
-                                                            <div className="flex gap-2 items-center"><span className="text-xs font-bold text-slate-400 w-24 text-center">綁定原物料</span><div className="flex-1"><MultiSelect value={modal.data.materials || []} options={materials.map(m => ({value: m.id, label: m.name}))} onChange={val => setModal({...modal, data: {...modal.data, materials: val}})} placeholder="選擇原物料 (影響庫存)..." /></div></div>
-                                                        </div>
-                                                    )}
-                                                    
-                                                    {modal.data.variants?.map((v, idx) => (
-                                                        <div key={idx} className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2">
-                                                            <div className="flex gap-2">
-                                                                <input className="flex-1 input-compact rounded-lg font-bold" value={v.name} onChange={e=>{const n=[...modal.data.variants]; n[idx].name=e.target.value; setModal({...modal, data: {...modal.data, variants: n}})}} placeholder="如: 大杯" />
-                                                                <input type="number" className="w-24 input-compact rounded-lg font-bold" value={v.price} onChange={e=>{const n=[...modal.data.variants]; n[idx].price=parseInt(e.target.value)||0; setModal({...modal, data: {...modal.data, variants: n}})}} placeholder="$" />
-                                                                <button onClick={()=>{ let n=modal.data.variants.filter((_,i)=>i!==idx); if (n.length === 1) { setModal({...modal, data: {...modal.data, price: n[0].price, variants: [], materials: []}}); } else { setModal({...modal, data: {...modal.data, variants: n}}); } }} className="p-1.5 text-slate-400 hover:text-red-500"><Icon name="Trash2" size={16}/></button>
-                                                            </div>
-                                                            <div className="flex items-center gap-2">
-                                                                <Icon name="Link" size={14} className="text-slate-400" />
-                                                                <div className="flex-1"><MultiSelect value={v.materials || []} options={materials.map(m => ({value: m.id, label: m.name}))} onChange={val => { const n = [...modal.data.variants]; n[idx].materials = val; setModal({...modal, data: {...modal.data, variants: n}}); }} placeholder="此規格綁定原物料..." /></div>
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">圖片 URL</label><div className="flex gap-2"><input className="w-full input-compact rounded-lg font-bold" value={modal.data.image} onChange={e => setModal({...modal, data: {...modal.data, image: e.target.value}})} /><button onClick={() => openCloudinaryWidget((url) => setModal({...modal, data: {...modal.data, image: url}}))} className="bg-slate-100 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-200 transition-colors font-bold flex items-center gap-1 whitespace-nowrap"><Icon name="UploadCloud" size={16} /> 上傳</button></div></div>
-                                                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">描述</label><textarea className="w-full input-compact rounded-lg font-bold h-16 resize-none" value={modal.data.desc} onChange={e => setModal({...modal, data: {...modal.data, desc: e.target.value}})}></textarea></div>
-                                                <div className="space-y-1"><label className="text-[10px] font-bold text-amber-600 uppercase">廚房備註</label><input className="w-full input-compact rounded-lg bg-amber-50 border border-amber-100 font-bold" value={modal.data.note} onChange={e => setModal({...modal, data: {...modal.data, note: e.target.value}})} /></div>
-                                            </div>
-                                            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 space-y-3">
-                                                <label className="text-[10px] font-bold text-slate-500 uppercase">適用客製化選項 (勾選開放)</label>
-                                                {processGroups('customization').map((group, gIdx) => (
-                                                    <div key={gIdx} className="space-y-1">
-                                                        <p className="text-xs font-black text-slate-400">{group.name}</p>
-                                                        <div className="flex flex-wrap gap-2">{group.items.map(ad => { const isSelected = modal.data.allowAddons?.includes(ad.id); return ( <button key={ad.id} onClick={()=>{ const current = modal.data.allowAddons || []; const next = isSelected ? current.filter(id => id !== ad.id) : [...current, ad.id]; setModal({...modal, data: {...modal.data, allowAddons: next}}); }} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${isSelected ? 'bg-[#5B2274] text-white border-[#5B2274]' : 'bg-white text-slate-500 border-slate-200'}`}> {ad.name} <span className="opacity-75">+${ad.price}</span> </button> ) })}</div>
-                                                    </div>
-                                                ))}
-                                                {addons.length === 0 && <span className="text-xs text-slate-400">請先在客製化頁面建立選項</span>}
-                                            </div>
-                                            <div className="bg-purple-50 p-5 rounded-xl border border-purple-100 space-y-4">
-                                                <div className="flex justify-between items-center"><div className="flex items-center gap-2 text-[#5B2274]"><Icon name="Sparkles" size={16}/><span className="font-bold text-sm">附餐群組 (多選)</span></div><Button variant="secondary" size="small" icon="Plus" onClick={()=>{ const n = [...(modal.data.sideGroups||[])]; n.push({id: Date.now(), title: '選擇附餐', categoryId: '', required: true, allowChange: true, defaultProductId: '', defaultVariantName: ''}); setModal({...modal, data: {...modal.data, sideGroups: n}}); }}>新增群組</Button></div>
-                                                {(modal.data.sideGroups||[]).map((group, idx) => {
-                                                    const groupProducts = products.filter(p => p.categoryId === group.categoryId);
-                                                    const defaultProduct = products.find(p => p.id === group.defaultProductId);
-                                                    return (
-                                                        <div key={idx} className="bg-white p-4 rounded-xl border border-purple-100 shadow-sm space-y-3 relative group" style={{zIndex: 50 - idx}}>
-                                                            <button onClick={()=>{const n=modal.data.sideGroups.filter((_,i)=>i!==idx); setModal({...modal, data: {...modal.data, sideGroups: n}})}} className="absolute top-2 right-2 text-slate-300 hover:text-red-500"><Icon name="X" size={14}/></button>
-                                                            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">群組標題</label><input className="w-full input-compact rounded-lg font-bold" value={group.title} onChange={e=>{const n=[...modal.data.sideGroups]; n[idx].title=e.target.value; setModal({...modal, data: {...modal.data, sideGroups: n}})}} /></div>
-                                                            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">來源分類</label><CustomSelect value={group.categoryId} options={categories.map(c => ({ value: c.id, label: c.name }))} onChange={val=>{const n=[...modal.data.sideGroups]; n[idx].categoryId=val; n[idx].defaultProductId=''; n[idx].defaultVariantName=''; setModal({...modal, data: {...modal.data, sideGroups: n}})}} /></div>
-                                                            <div className="flex items-center gap-2 pt-2"><ToggleSwitch checked={group.allowChange} onChange={c=>{const n=[...modal.data.sideGroups]; n[idx].allowChange=c; setModal({...modal, data: {...modal.data, sideGroups: n}})}} /><span className="text-[10px] font-bold text-slate-500">允許更換 (開啟即自動補差價)</span></div>
-                                                            {group.allowChange && group.categoryId && (
-                                                                <div className="p-2 bg-slate-50 rounded-lg space-y-2 border border-slate-100 mt-2">
-                                                                    <div className="space-y-1"><label className="text-[9px] font-bold text-slate-400">基準品項 (差價=0)</label><CustomSelect value={group.defaultProductId} options={groupProducts.map(p => ({ value: p.id, label: p.name + ` ($${p.price})` }))} onChange={val=>{const n=[...modal.data.sideGroups]; n[idx].defaultProductId=val; n[idx].defaultVariantName=''; setModal({...modal, data: {...modal.data, sideGroups: n}})}} searchable={true} /></div>
-                                                                    {defaultProduct?.variants?.length > 0 && (<div className="space-y-1"><label className="text-[9px] font-bold text-slate-400">基準規格</label><CustomSelect value={group.defaultVariantName} options={defaultProduct.variants.map(v => ({ value: v.name, label: v.name + ` ($${v.price})` }))} onChange={val=>{const n=[...modal.data.sideGroups]; n[idx].defaultVariantName=val; setModal({...modal, data: {...modal.data, sideGroups: n}})}} /></div>)}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })}
-                                                {(modal.data.sideGroups||[]).length === 0 && <div className="text-center text-xs text-purple-300 py-2">無附餐設定</div>}
-                                            </div>
-                                            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 space-y-3"><label className="text-[10px] font-bold text-slate-500 uppercase">可搭配套餐</label><div className="grid grid-cols-2 gap-2">{sets.map(s => (<button key={s.id} onClick={() => { const current = modal.data.allowSets || []; const next = current.includes(s.id) ? current.filter(id => id !== s.id) : [...current, s.id]; setModal({...modal, data: {...modal.data, allowSets: next}}); }} className={`p-2 rounded-lg border text-xs font-bold flex justify-between transition-all ${modal.data.allowSets?.includes(s.id) ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200'}`}><span>{s.name}</span><span className="opacity-70">+${s.price}</span></button>))}</div></div>
-                                        </>
-                                    )}
-                                    {modal.type === 'cat' && <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100"><label className="text-[10px] font-bold text-slate-500 uppercase">分類名稱</label><input className="w-full input-compact rounded-lg font-bold mt-1" value={modal.data.name} onChange={e => setModal({...modal, data: {...modal.data, name: e.target.value}})} /></div>}
-                                    {modal.type === 'set' && (
-                                        <div className="space-y-6">
-                                            {/* ... Set Modal Content ... */}
-                                            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 grid grid-cols-3 gap-3">
-                                                <div className="col-span-2 space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">名稱</label><input className="w-full input-compact rounded-lg font-bold" value={modal.data.name} onChange={e => setModal({...modal, data: {...modal.data, name: e.target.value}})} /></div>
-                                                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">加價</label><input type="number" className="w-full input-compact rounded-lg font-bold" value={modal.data.price} onChange={e => setModal({...modal, data: {...modal.data, price: parseInt(e.target.value)||0}})} /></div>
-                                                <div className="col-span-3 space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">圖片 URL</label><div className="flex gap-2"><input className="w-full input-compact rounded-lg font-bold" value={modal.data.image} onChange={e => setModal({...modal, data: {...modal.data, image: e.target.value}})} placeholder="https://..." /><button onClick={() => openCloudinaryWidget((url) => setModal({...modal, data: {...modal.data, image: url}}))} className="bg-slate-100 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-200 transition-colors font-bold flex items-center gap-1 whitespace-nowrap"><Icon name="UploadCloud" size={16} /> 上傳</button></div></div>
-                                            </div>
-                                            <div className="space-y-3">
-                                                <div className="flex justify-between items-center"><label className="text-[10px] font-black text-[#5B2274] uppercase">套餐結構</label><Button variant="secondary" size="small" icon="Plus" onClick={() => { const newItem = { label: '新項目', type: 'category', defaultProductId: '', allowChange: true }; setModal({...modal, data: {...modal.data, contents: [...(modal.data.contents || []), newItem]}}); }}>新增欄位</Button></div>
-                                                <div className="space-y-2">{(modal.data.contents || []).map((item, idx) => {
-                                                    const slotProducts = products.filter(p=>p.categoryId===item.categoryId);
-                                                    const defaultProduct = products.find(p=>p.id===item.defaultProductId);
-                                                    const fixedProduct = products.find(p=>p.id===item.productId);
-                                                    const filterCategoryId = item.tempFilterCategoryId || fixedProduct?.categoryId || '';
-                                                    const filteredFixedProducts = products.filter(p => p.categoryId === filterCategoryId);
-
-                                                    return (
-                                                        <div key={idx} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 relative group animate-fade-in" style={{zIndex: 50 - idx}}>
-                                                            <button onClick={() => { const next = modal.data.contents.filter((_, i) => i !== idx); setModal({...modal, data: {...modal.data, contents: next}}); }} className="absolute top-2 right-2 text-slate-300 hover:text-red-500"><Icon name="X" size={14}/></button>
-                                                            <div className="grid grid-cols-2 gap-3 mb-3"><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">標籤</label><input className="w-full input-compact rounded-lg font-bold" value={item.label} onChange={e => { const next = [...modal.data.contents]; next[idx].label = e.target.value; setModal({...modal, data: {...modal.data, contents: next}}); }} /></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">類型</label><CustomSelect value={item.type} options={[{value: 'fixed', label: '指定固定品項'}, {value: 'category', label: '開放分類選品'}]} onChange={val => { const next = [...modal.data.contents]; next[idx].type = val; setModal({...modal, data: {...modal.data, contents: next}}); }} /></div></div>
-                                                            {item.type === 'category' && (
-                                                                <div className="space-y-3">
-                                                                    <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">來源分類</label><CustomSelect value={item.categoryId} options={categories.map(c => ({value: c.id, label: c.name}))} onChange={val => { const next = [...modal.data.contents]; next[idx].categoryId = val; next[idx].defaultProductId=''; next[idx].defaultVariantName=''; setModal({...modal, data: {...modal.data, contents: next}}); }} /></div>
-                                                                    <div className="flex items-center gap-2 pt-1"><ToggleSwitch checked={item.allowChange} onChange={c => { const next = [...modal.data.contents]; next[idx].allowChange = c; setModal({...modal, data: {...modal.data, contents: next}}); }} /><span className="text-xs font-bold text-slate-500">允許更換 (開啟即自動補差價)</span></div>
-                                                                    {item.allowChange && (
-                                                                        <>
-                                                                            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">預設品項</label><CustomSelect value={item.defaultProductId} options={slotProducts.map(p => ({value: p.id, label: p.name}))} onChange={val => { const next = [...modal.data.contents]; next[idx].defaultProductId = val; next[idx].defaultVariantName=''; setModal({...modal, data: {...modal.data, contents: next}}); }} searchable={true} /></div>
-                                                                            {defaultProduct?.variants?.length > 0 && (<div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">預設規格</label><CustomSelect value={item.defaultVariantName} options={defaultProduct.variants.map(v => ({value: v.name, label: v.name}))} onChange={val => { const next = [...modal.data.contents]; next[idx].defaultVariantName = val; setModal({...modal, data: {...modal.data, contents: next}}); }} /></div>)}
-                                                                        </>
-                                                                    )}
-                                                                </div>
-                                                            )}
-                                                            {item.type === 'fixed' && (
-                                                                <div className="space-y-3 bg-slate-50 p-3 rounded-lg border border-slate-100">
-                                                                    <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">篩選分類</label><CustomSelect value={filterCategoryId} options={categories.map(c => ({value: c.id, label: c.name}))} onChange={val => { const next = [...modal.data.contents]; next[idx].tempFilterCategoryId = val; setModal({...modal, data: {...modal.data, contents: next}}); }} /></div>
-                                                                    <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">指定品項</label><CustomSelect value={item.productId} options={filteredFixedProducts.map(p => ({value: p.id, label: p.name}))} onChange={val => { const next = [...modal.data.contents]; next[idx].productId = val; next[idx].variantName=''; setModal({...modal, data: {...modal.data, contents: next}}); }} searchable={true} /></div>
-                                                                    {fixedProduct?.variants?.length > 0 && (<div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">指定規格</label><CustomSelect value={item.variantName} options={fixedProduct.variants.map(v => ({value: v.name, label: v.name}))} onChange={val => { const next = [...modal.data.contents]; next[idx].variantName = val; setModal({...modal, data: {...modal.data, contents: next}}); }} /></div>)}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })}</div>
-                                            </div>
-                                        </div>
-                                    )}
-                                    {modal.type === 'edit_order' && (() => {
+                            
+							{/* [Req 1] 訂單詳情專用的底部上來頁面 (不使用設定框) */}
+                            {modal.type === 'edit_order' ? (
+                                <div className="bg-white w-full max-w-2xl mt-auto rounded-t-[2.5rem] shadow-2xl relative z-10 flex flex-col overflow-hidden order-drawer">
+                                    {/* 這裡放入您之前的 edit_order 渲染內容，但移除外層多餘的設定按鈕 */}
+                                    {(() => {
                                         const statusKey = modal.data.status in STATUS_STYLE ? modal.data.status : 'pending';
                                         const style = STATUS_STYLE[statusKey];
-                                        const isUrgent = modal.data.userInfo?.pickupTime === 'ASAP';
-                                        
                                         return (
                                             <div className="flex flex-col h-full bg-slate-50">
-                                                {/* 1. 頂部狀態列 - 顏色隨狀態變動 */}
-                                                <div className={`${style.bg} ${style.text} px-6 py-4 flex justify-between items-center border-b ${style.border}`}>
+                                                {/* Header */}
+                                                <div className={`px-6 py-4 flex justify-between items-center border-b shrink-0 ${style.bg} ${style.border}`}>
                                                     <div className="flex items-center gap-3">
-                                                        <div className="bg-white/80 p-2 rounded-xl shadow-sm"><Icon name={style.icon} size={20} /></div>
-                                                        <span className="font-[1000] text-lg tracking-tight">{style.label}</span>
+                                                        <div className={`p-2 rounded-xl bg-white/60 ${style.text}`}><Icon name={style.icon} size={20} /></div>
+                                                        <div><div className={`text-[10px] font-black uppercase ${style.text}`}>{style.label}</div><div className="text-base font-[1000] text-slate-800">#{modal.data.orderId?.slice(-6)}</div></div>
                                                     </div>
-                                                    <div className="text-right">
-                                                        <div className="text-[10px] font-black opacity-60 uppercase tracking-widest">Order ID</div>
-                                                        <div className="font-mono font-bold">#{modal.data.orderId?.slice(-8)}</div>
-                                                    </div>
+                                                    <button onClick={() => setModal(null)} className="w-8 h-8 rounded-full bg-white/50 flex items-center justify-center text-slate-400 hover:text-slate-600"><Icon name="X" size={20}/></button>
                                                 </div>
-                                    
-                                                <div className="flex-1 overflow-y-auto p-5 space-y-5 no-scrollbar">
-                                                    
-                                                    {/* 2. 核心時間與顧客資訊卡片 */}
-                                                    <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60 flex justify-between items-center">
-                                                        <div className="space-y-1">
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="text-[11px] font-black text-slate-400 uppercase tracking-tighter">顧客資訊</span>
-                                                                {modal.data.verified && <span className="bg-emerald-100 text-emerald-600 text-[9px] px-1.5 py-0.5 rounded-md font-bold flex items-center gap-1"><Icon name="Check" size={10}/>已付款</span>}
-                                                            </div>
-                                                            <div className="text-xl font-[1000] text-slate-800">{modal.data.userInfo?.name}</div>
+
+                                                <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+                                                    {/* 內容區域字體調小 (Requirement 1) */}
+                                                    <div className="bg-white p-5 rounded-[1.5rem] shadow-sm border border-slate-100 flex justify-between items-center">
+                                                        <div className="space-y-0.5">
+                                                            <div className="text-lg font-[1000] text-slate-800">{modal.data.userInfo?.name}</div>
                                                             <a href={`tel:${modal.data.userInfo?.phone}`} className="text-xs font-bold text-blue-500 flex items-center gap-1"><Icon name="Phone" size={12}/> {modal.data.userInfo?.phone}</a>
+                                                            <div className="text-[10px] font-bold text-slate-400">取餐日：{modal.data.userInfo?.pickupDate}</div>
                                                         </div>
                                                         <div className="text-right">
-                                                            <div className="text-[11px] font-black text-slate-400 uppercase">預計取餐</div>
-                                                            <div className={`text-3xl font-[1000] tracking-tighter ${isUrgent ? 'text-red-500 animate-pulse' : 'text-slate-800'}`}>
-                                                                {modal.data.userInfo?.pickupTime}
-                                                            </div>
+                                                            <div className="text-[10px] font-black text-slate-400">取餐時間</div>
+                                                            <div className={`text-3xl font-[1000] tracking-tighter ${modal.data.userInfo?.pickupTime==='ASAP'?'text-red-500':'text-slate-800'}`}>{modal.data.userInfo?.pickupTime}</div>
                                                         </div>
                                                     </div>
-                                    
-                                                    {/* 3. 訂單餐點清單 - 仿出單紙風格 */}
-                                                    <div className="bg-white rounded-3xl shadow-sm border border-slate-200/60 overflow-hidden">
-                                                        <div className="px-5 py-3 bg-slate-800 text-white text-[10px] font-black uppercase tracking-widest flex justify-between">
-                                                            <span>餐點內容物</span>
-                                                            <span>{modal.data.items?.reduce((s,i)=>s+i.qty, 0)} 品項</span>
-                                                        </div>
-                                                        <div className="divide-y divide-slate-100 p-2">
+
+                                                    {/* 餐點明細 - 縮小字體 */}
+                                                    <div className="bg-white rounded-[1.5rem] shadow-sm border border-slate-100 overflow-hidden">
+                                                        <div className="bg-slate-800 px-5 py-2.5 text-[10px] font-black text-white uppercase tracking-widest flex justify-between"><span>訂單內容</span><span>{modal.data.items?.length} 品項</span></div>
+                                                        <div className="divide-y divide-slate-100">
                                                             {modal.data.items?.map((item, idx) => (
-                                                                <div key={idx} className="p-3 flex justify-between items-start group">
-                                                                    <div className="flex gap-4">
-                                                                        <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center font-[1000] text-[#5B2274] shrink-0">
-                                                                            {item.qty}<span className="text-[10px] ml-0.5">x</span>
-                                                                        </div>
+                                                                <div key={idx} className="p-4 flex justify-between items-start">
+                                                                    <div className="flex gap-3">
+                                                                        <div className="font-[1000] text-[#5B2274] text-base bg-purple-50 w-8 h-8 rounded-lg flex items-center justify-center shrink-0">{item.qty}x</div>
                                                                         <div className="min-w-0">
-                                                                            <div className="font-[900] text-slate-800 text-base leading-tight mb-1">{item.name}</div>
-                                                                            <div className="flex flex-wrap gap-1">
-                                                                                {item.variantName && <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">{item.variantName}</span>}
-                                                                                {item.addons?.map((ad, ai) => <span key={ai} className="text-[10px] font-bold text-amber-600">+{ad.name}</span>)}
+                                                                            <div className="font-black text-slate-700 text-sm leading-tight">{item.name}</div>
+                                                                            <div className="flex flex-wrap gap-1 mt-1">
+                                                                                {item.variantName && <span className="text-[9px] font-bold text-slate-400 bg-slate-50 px-1 py-0.5 rounded border border-slate-100">{item.variantName}</span>}
+                                                                                {item.addons?.map((ad, ai) => <span key={ai} className="text-[9px] font-bold text-amber-600">+{ad.name}</span>)}
                                                                             </div>
                                                                         </div>
                                                                     </div>
-                                                                    <div className="text-sm font-bold text-slate-400 group-hover:text-slate-700 transition-colors">${item.totalPrice}</div>
+                                                                    <div className="font-bold text-slate-800 text-sm">${item.totalPrice}</div>
                                                                 </div>
                                                             ))}
                                                         </div>
-                                                        {/* 金額總結 */}
-                                                        <div className="p-5 bg-slate-50/50 border-t border-dashed border-slate-200 space-y-2">
-                                                            <div className="flex justify-between text-xs font-bold text-slate-400">
-                                                                <span>小計 Subtotal</span>
-                                                                <span>${modal.data.originalPrice || modal.data.totalPrice}</span>
-                                                            </div>
-                                                            {modal.data.discountAmount > 0 && (
-                                                                <div className="flex justify-between text-xs font-bold text-red-400">
-                                                                    <span>折扣額 Discount</span>
-                                                                    <span>-${modal.data.discountAmount}</span>
-                                                                </div>
-                                                            )}
-                                                            <div className="flex justify-between items-center pt-2">
-                                                                <span className="text-sm font-black text-slate-800">應收總計 TOTAL</span>
-                                                                <span className="text-2xl font-[1000] text-[#5B2274] tracking-tighter">${modal.data.totalPrice}</span>
-                                                            </div>
+                                                        <div className="bg-slate-50 p-4 border-t border-slate-100 space-y-1">
+                                                            <div className="flex justify-between items-center text-slate-400 font-bold text-[10px]"><span>小計</span><span>${modal.data.originalPrice || modal.data.totalPrice}</span></div>
+                                                            <div className="flex justify-between items-center pt-2 border-t border-slate-200 border-dashed mt-1"><span className="text-xs font-black text-slate-700 uppercase">總計 TOTAL</span><span className="text-xl font-[1000] text-[#5B2274]">${modal.data.totalPrice}</span></div>
                                                         </div>
                                                     </div>
-                                    
-                                                    {/* 4. 備註區塊 - 改為卡片並排 */}
-                                                    <div className="grid grid-cols-1 gap-4">
-                                                        {/* 顧客註記 */}
-                                                        <div className="bg-amber-50/50 p-4 rounded-3xl border border-amber-100 space-y-2">
-                                                            <div className="flex items-center gap-2 text-[11px] font-black text-amber-700 uppercase"><Icon name="User" size={14}/> 顧客永久註記 (跨單顯示)</div>
+
+                                                    {/* 註記區 - 已聯動 [Req 4] */}
+                                                    <div className="grid grid-cols-1 gap-3">
+                                                        <div className="bg-amber-50 p-4 rounded-[1.5rem] border border-amber-100 space-y-2">
+                                                            <div className="flex items-center gap-2 text-[9px] font-black text-amber-700 uppercase"><Icon name="User" size={12}/> 顧客永久註記 (跨單聯動)</div>
                                                             <div className="flex gap-2">
-                                                                <textarea className="flex-1 bg-transparent text-sm font-bold text-slate-600 resize-none outline-none focus:ring-0" rows="2" value={customerNote} onChange={(e) => setCustomerNote(e.target.value)} placeholder="點此輸入對該顧客的特殊交代..."></textarea>
-                                                                <button onClick={saveCustomerNote} className="h-10 w-10 bg-amber-400 text-white rounded-xl flex items-center justify-center shadow-sm hover:scale-105 active:scale-95 transition-all"><Icon name="Save" size={18}/></button>
+                                                                <textarea className="flex-1 bg-transparent text-xs font-bold text-slate-700 resize-none outline-none" rows="2" value={customerNote} onChange={(e) => setCustomerNote(e.target.value)} placeholder="輸入關於此顧客的備註..."></textarea>
+                                                                <button onClick={saveCustomerNote} className="bg-amber-400 text-white p-2 rounded-xl self-end shadow-sm hover:scale-105 active:scale-95 transition-all"><Icon name="Save" size={16}/></button>
                                                             </div>
                                                         </div>
-                                    
-                                                        {/* 店家內部備註 */}
-                                                        <div className="bg-white p-4 rounded-3xl border border-slate-200 space-y-2">
-                                                            <div className="flex items-center justify-between">
-                                                                <div className="flex items-center gap-2 text-[11px] font-black text-slate-400 uppercase"><Icon name="FileText" size={14}/> 內部備註 (僅此單)</div>
-                                                                <label className="flex items-center gap-2 cursor-pointer">
-                                                                    <span className="text-[10px] font-bold text-slate-400">核銷付款</span>
-                                                                    <ToggleSwitch checked={modal.data.verified} onChange={(checked) => setModal({...modal, data: {...modal.data, verified: checked}})} />
-                                                                </label>
+                                                        <div className="bg-white p-4 rounded-[1.5rem] border border-slate-200 space-y-2">
+                                                            <div className="flex justify-between items-center">
+                                                                <div className="text-[9px] font-black text-slate-400 uppercase">此單備註 / 核銷</div>
+                                                                <ToggleSwitch checked={modal.data.verified} onChange={(c)=>setModal({...modal, data:{...modal.data, verified:c}})} />
                                                             </div>
-                                                            <input className="w-full bg-slate-50 border-none rounded-xl px-4 py-2.5 text-sm font-bold text-slate-600 focus:ring-1 focus:ring-purple-200 transition-all" value={modal.data.adminNote || ''} onChange={e => setModal({...modal, data: {...modal.data, adminNote: e.target.value}})} placeholder="例如：已退款、此單加蛋招待..." />
+                                                            <input className="w-full bg-slate-50 border-none rounded-xl px-3 py-2 text-xs font-bold text-slate-600" value={modal.data.adminNote || ''} onChange={e => setModal({...modal, data: {...modal.data, adminNote: e.target.value}})} placeholder="此單特殊處理..." />
                                                         </div>
-                                                    </div>
-                                    
-                                                    {/* 5. 危險操作區 */}
-                                                    <div className="text-center pt-2">
-                                                        <button onClick={() => { if(confirm("確定要永久刪除此訂單？")) { dbOp('delete', 'orders', modal.data.id); setModal(null); }}} className="text-[10px] font-bold text-slate-300 hover:text-red-400 transition-colors uppercase tracking-widest underline">永久刪除此訂單 (Delete Order)</button>
                                                     </div>
                                                 </div>
                                                 
-                                                {/* 6. 底部固定按鈕區 - 根據狀態顯示大按鈕 */}
+                                                {/* 底部動作按鈕 - 移除英文 [Req 3] */}
                                                 {!['completed', 'cancelled'].includes(modal.data.status) && (
-                                                    <div className="p-5 bg-white border-t border-slate-100 shadow-[0_-10px_20px_-5px_rgba(0,0,0,0.05)]">
+                                                    <div className="p-4 bg-white border-t border-slate-100 shadow-[0_-10px_20px_-5px_rgba(0,0,0,0.05)] pb-8">
                                                         <div className="flex gap-3">
-                                                            {modal.data.status === 'pending' && (
-                                                                <>
-                                                                    <button onClick={() => { if(confirm('拒絕接此訂單？')) handleUpdateOrderStatus(modal.data.id, 'cancelled'); }} className="flex-1 py-4 rounded-2xl bg-slate-100 text-slate-400 font-black text-sm hover:bg-red-50 hover:text-red-500 transition-all uppercase">拒絕接單</button>
-                                                                    <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'confirmed')} className="flex-[2] py-4 rounded-2xl bg-blue-600 text-white font-[1000] text-sm hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all uppercase tracking-widest">確認接單 (ACCEPT)</button>
-                                                                </>
-                                                            )}
-                                                            {modal.data.status === 'confirmed' && (
-                                                                <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'preparing')} className="w-full py-5 rounded-2xl bg-orange-500 text-white font-[1000] text-base hover:bg-orange-600 shadow-lg shadow-orange-200 transition-all flex items-center justify-center gap-3">
-                                                                    <Icon name="Flame" size={24}/> 開始製作餐點
-                                                                </button>
-                                                            )}
-                                                            {modal.data.status === 'preparing' && (
-                                                                <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'ready')} className="w-full py-5 rounded-2xl bg-emerald-500 text-white font-[1000] text-base hover:bg-emerald-600 shadow-lg shadow-emerald-200 transition-all flex items-center justify-center gap-3">
-                                                                    <Icon name="CheckCircle" size={24}/> 製作完成，通知顧客
-                                                                </button>
-                                                            )}
-                                                            {modal.data.status === 'ready' && (
-                                                                <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'completed')} className="w-full py-5 rounded-2xl bg-[#5B2274] text-white font-[1000] text-base hover:bg-purple-800 shadow-lg shadow-purple-200 transition-all flex items-center justify-center gap-3">
-                                                                    <Icon name="ShoppingBag" size={24}/> 完成取餐 (結案)
-                                                                </button>
-                                                            )}
+                                                            {modal.data.status === 'pending' && (<><button onClick={() => { if(confirm('拒絕？')) handleUpdateOrderStatus(modal.data.id, 'cancelled'); }} className="flex-1 py-3 bg-slate-100 text-slate-400 font-black rounded-xl text-xs">拒絕接單</button><button onClick={() => handleUpdateOrderStatus(modal.data.id, 'confirmed')} className="flex-[2] py-3 bg-blue-600 text-white font-[1000] rounded-xl shadow-lg shadow-blue-200 text-xs tracking-widest">確認接單</button></>)}
+                                                            {modal.data.status === 'confirmed' && <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'preparing')} className="w-full py-4 rounded-xl bg-orange-500 text-white font-[1000] shadow-lg shadow-orange-200 flex items-center justify-center gap-2 text-sm"><Icon name="Flame" size={20}/> 開始製作餐點</button>}
+                                                            {modal.data.status === 'preparing' && <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'ready')} className="w-full py-4 rounded-xl bg-emerald-500 text-white font-[1000] shadow-lg shadow-emerald-200 flex items-center justify-center gap-2 text-sm"><Icon name="CheckCircle" size={20}/> 製作完成</button>}
+                                                            {modal.data.status === 'ready' && <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'completed')} className="w-full py-4 rounded-xl bg-[#5B2274] text-white font-[1000] shadow-lg shadow-purple-200 flex items-center justify-center gap-2 text-sm"><Icon name="ShoppingBag" size={20}/> 完成取餐</button>}
                                                         </div>
                                                     </div>
                                                 )}
@@ -1784,64 +1546,553 @@
                                         );
                                     })()}
                                 </div>
-                                <div className="p-5 bg-white border-t border-slate-100 flex gap-3"><Button variant="secondary" className="flex-1" onClick={() => setModal(null)}>取消</Button><Button className="flex-[2]" icon="Save" onClick={() => { 
-                                    if (modal.type === 'tags') {
-                                        dbOp('set', 'settings', 'config', settings);
-                                        setModal(null);
-                                        return;
-                                    }
+                            ) : (
+								/* 原本的其他 Modal (如產品、標籤、營運設定) 仍維持中間白色框框 */
+								<div className="bg-white w-full max-w-xl max-h-[90vh] rounded-2xl shadow-2xl relative z-10 flex flex-col overflow-hidden animate-fade-in">
+									{/* ... Modal Header ... */}
+									<div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white"><h3 className="text-lg font-[900] text-slate-800">{modal.type === 'cat' ? '分類設定' : (modal.type === 'prod' ? '餐點詳情' : (modal.type === 'tags' ? '商品標籤設定' : (modal.type === 'group_mgmt' ? '組別管理' : (modal.type === 'item_editor' ? '項目編輯' : (modal.type === 'set' ? '套餐配置' : (modal.type === 'coupon' ? '優惠券設定' : '設定'))))))}</h3><button onClick={() => setModal(null)} className="w-8 h-8 rounded-full bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-500"><Icon name="X" size={18}/></button></div>
+									<div className="p-6 overflow-y-auto no-scrollbar space-y-6 bg-slate-50/50">
+										{/* ... Modal Contents ... */}
+										{modal.type === 'group_mgmt' && (
+											<div className="space-y-4">
+												<div className="p-4 bg-blue-50 text-blue-800 rounded-xl text-xs lg:text-sm font-medium flex items-start gap-2 border border-blue-100">
+													<Icon name="Info" size={18} className="mt-0.5 shrink-0"/>
+													<p>在此管理組別。您可以排序、重新命名或刪除組別。修改名稱時，該組別下的所有項目會自動更新。</p>
+												</div>
+												<div className="space-y-2">
+													<div className="flex gap-2 pb-2 border-b border-slate-200">
+														<input id="newGroupName" className="input-compact flex-1" placeholder="新增組別名稱..." />
+														<Button size="small" onClick={()=>{
+															const name = document.getElementById('newGroupName').value;
+															if(name) {
+																const groups = getGroups(modal.dataType);
+																saveGroups(modal.dataType, [...groups, { id: Date.now(), name, sortOrder: groups.length }]);
+																document.getElementById('newGroupName').value = '';
+															}
+														}}>新增</Button>
+													</div>
+													<div className="space-y-2 max-h-[60vh] overflow-y-auto">
+														{getGroups(modal.dataType).map((g, idx) => (
+															<div key={g.id} className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 flex items-center gap-2">
+																<div className="flex flex-col gap-0.5">
+																	<SortButton direction="up" disabled={idx === 0} onClick={() => handleSortGroup(modal.dataType, idx, 'up')} />
+																	<SortButton direction="down" disabled={idx === getGroups(modal.dataType).length - 1} onClick={() => handleSortGroup(modal.dataType, idx, 'down')} />
+																</div>
+																
+																{/* ★★★ 修改重點：原本只有一個 input，現在要改成包含 Min/Max 設定的區塊 ★★★ */}
+																<div className="flex-1 space-y-2">
+																	{/* 1. 群組名稱 */}
+																	<BlurInput className="input-compact font-bold" value={g.name} onSave={(val) => handleRenameGroup(modal.dataType, g.name, val)} />
+																	
+																	{/* 2. 新增：Min/Max 設定 (只在客製化選項 dataType === 'addons' 時顯示) */}
+																	{modal.dataType === 'addons' && (
+																		<div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
+																			<label className="text-[10px] text-slate-500 font-bold whitespace-nowrap">至少選</label>
+																			<input 
+																				type="number" 
+																				className="w-14 input-compact py-1 px-1 text-center font-bold text-sm h-8" 
+																				value={g.minSelect !== undefined ? g.minSelect : (g.isRequired ? 1 : 0)} 
+																				onChange={(e) => {
+																					const groups = [...getGroups('addons')];
+																					groups[idx].minSelect = parseInt(e.target.value) || 0;
+																					saveGroups('addons', groups);
+																				}} 
+																			/>
+																			<label className="text-[10px] text-slate-500 font-bold whitespace-nowrap ml-2">至多選</label>
+																			<input 
+																				type="number" 
+																				className="w-14 input-compact py-1 px-1 text-center font-bold text-sm h-8" 
+																				value={g.maxSelect !== undefined ? g.maxSelect : 99} 
+																				onChange={(e) => {
+																					const groups = [...getGroups('addons')];
+																					groups[idx].maxSelect = parseInt(e.target.value) || 99;
+																					saveGroups('addons', groups);
+																				}} 
+																			/>
+																			<span className="text-[10px] text-slate-400 ml-auto">
+																				{g.maxSelect === 1 ? '(單選)' : '(多選)'}
+																			</span>
+																		</div>
+																	)}
+																</div>
+																<button onClick={() => handleCloneGroup(modal.dataType, g.name)} className="p-2 text-blue-400 hover:text-blue-600" title="複製組別"><Icon name="Copy" size={16}/></button>
+																<button onClick={() => handleDeleteGroup(modal.dataType, g.name)} className="p-2 text-red-400 hover:text-red-600" title="刪除組別"><Icon name="Trash2" size={16}/></button>
+															</div>
+														))}
+														{getGroups(modal.dataType).length === 0 && <div className="text-center text-slate-400 py-4">無自訂組別</div>}
+													</div>
+												</div>
+											</div>
+										)}
+										{modal.type === 'item_editor' && (
+											<div className="space-y-4 bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
+												<div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">名稱</label><input className="w-full input-compact rounded-lg font-bold" value={modal.data.name} onChange={e => setModal({...modal, data: {...modal.data, name: e.target.value}})} /></div>
+												<div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">組別</label><CustomSelect value={modal.data.category} options={getGroups(modal.dataType).map(g => ({ value: g.name, label: g.name }))} onChange={val => setModal({...modal, data: {...modal.data, category: val}})} allowCustom={true} placeholder="選擇或輸入新組別..." /></div>
+												{modal.dataType === 'addons' && (
+													<div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">價格</label><input type="number" className="w-full input-compact rounded-lg font-bold" value={modal.data.price} onChange={e => setModal({...modal, data: {...modal.data, price: parseInt(e.target.value)||0}})} /></div>
+												)}
+												{modal.dataType === 'materials' && (
+													<div className="flex items-center gap-2 pt-2"><ToggleSwitch checked={!modal.data.isOut} variant="danger" onChange={c => setModal({...modal, data: {...modal.data, isOut: !c.target.checked}})} /><span className={`font-bold ${modal.data.isOut ? 'text-red-500' : 'text-slate-500'}`}>{modal.data.isOut ? '目前缺貨' : '供應中'}</span></div>
+												)}
+											</div>
+										)}
+										{modal.type === 'tags' && (
+											<div className="space-y-6">
+												<div className="p-4 bg-blue-50 text-blue-800 rounded-xl text-xs lg:text-sm font-medium flex items-start gap-2 border border-blue-100">
+													<Icon name="Info" size={18} className="mt-0.5 shrink-0"/>
+													<p>在此設定商品標籤（如：人氣、新品、辣味等）。設定後可於「餐點詳情」中勾選使用。</p>
+												</div>
+												<div className="glass-panel p-6 rounded-2xl space-y-4 bg-white">
+													<div className="flex flex-wrap gap-2 mb-2">
+														{(settings.productTags || []).map((tag, idx) => (
+															<div key={idx} className={`px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm font-bold shadow-sm ${TAG_COLORS[tag.color]}`}>
+																<span>{tag.label}</span>
+																<button onClick={()=>{ const n = [...settings.productTags]; n.splice(idx, 1); setSettings({...settings, productTags: n}); }} className="hover:text-black/50"><Icon name="X" size={14}/></button>
+															</div>
+														))}
+														{(settings.productTags || []).length === 0 && <span className="text-slate-400 text-sm">暫無標籤</span>}
+													</div>
+													<div className="flex gap-2 items-center pt-4 border-t border-slate-100">
+														<input id="newTagNameModal" className="input-compact flex-1" placeholder="新標籤名稱" />
+														<select id="newTagColorModal" className="input-compact w-24">
+															<option value="red">紅</option><option value="orange">橘</option><option value="green">綠</option><option value="blue">藍</option><option value="purple">紫</option><option value="black">黑</option>
+														</select>
+														<Button size="small" variant="secondary" className="h-full" onClick={()=>{ 
+															const name = document.getElementById('newTagNameModal').value; 
+															const color = document.getElementById('newTagColorModal').value;
+															if(name) { 
+																setSettings({...settings, productTags: [...(settings.productTags||[]), {id: Date.now(), label: name, color}]}); 
+																document.getElementById('newTagNameModal').value = '';
+															}
+														}}>新增</Button>
+													</div>
+												</div>
+											</div>
+										)}
+										{modal.type === 'coupon' && (
+											<div className="space-y-6 p-2">
+												{/* 折扣核心設定 */}
+												<div className="grid grid-cols-2 gap-4 bg-slate-50 p-5 rounded-[1.5rem] border border-slate-100">
+													<div className="space-y-2">
+														<label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">折扣類型</label>
+														<div className="flex bg-white p-1 rounded-xl border border-slate-200">
+															<button onClick={()=>setModal({...modal, data:{...modal.data, type:'fixed'}})} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${modal.data.type!=='percent'?'bg-[#5B2274] text-white shadow-sm':'text-slate-400'}`}>固定金額</button>
+															<button onClick={()=>setModal({...modal, data:{...modal.data, type:'percent'}})} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${modal.data.type==='percent'?'bg-[#5B2274] text-white shadow-sm':'text-slate-400'}`}>% 比例</button>
+														</div>
+													</div>
+													<div className="space-y-2">
+														<label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">折扣數值</label>
+														<div className="relative">
+															<input type="number" className="w-full input-compact rounded-xl font-[1000] text-lg pr-10" value={modal.data.discount} onChange={e => setModal({...modal, data: {...modal.data, discount: parseInt(e.target.value)||0}})} />
+															<span className="absolute right-4 top-3 text-slate-300 font-bold">{modal.data.type === 'percent' ? '%' : '$'}</span>
+														</div>
+													</div>
+												</div>
 
-                                    if (modal.type === 'group_mgmt') {
-                                        // Groups are saved individually in handlers
-                                        setModal(null);
-                                        return;
-                                    }
+												<div className="space-y-4">
+													<div className="grid grid-cols-2 gap-4">
+														<div className="space-y-1.5"><label className="text-[11px] font-black text-slate-400 ml-1">優惠代碼</label><input className="w-full input-compact rounded-xl font-mono font-bold uppercase tracking-widest" value={modal.data.code} onChange={e => setModal({...modal, data: {...modal.data, code: e.target.value.toUpperCase()}})} placeholder="例如: OPENING80" /></div>
+														<div className="space-y-1.5"><label className="text-[11px] font-black text-slate-400 ml-1">最低消費</label><input type="number" className="w-full input-compact rounded-xl font-bold" value={modal.data.minSpend} onChange={e => setModal({...modal, data: {...modal.data, minSpend: parseInt(e.target.value)||0}})} /></div>
+													</div>
+													
+													<div className="space-y-1.5"><label className="text-[11px] font-black text-slate-400 ml-1">優惠券名稱</label><input className="w-full input-compact rounded-xl font-bold" value={modal.data.title} onChange={e => setModal({...modal, data: {...modal.data, title: e.target.value}})} placeholder="顯示給客人的標題" /></div>
+													
+													<div className="space-y-1.5"><label className="text-[11px] font-black text-slate-400 ml-1">活動日期範圍</label>
+														<div className="flex items-center gap-2">
+															<input type="date" className="flex-1 input-compact rounded-xl text-xs font-bold" value={modal.data.startDate || ''} onChange={e => setModal({...modal, data: {...modal.data, startDate: e.target.value}})} />
+															<span className="text-slate-300">至</span>
+															<input type="date" className="flex-1 input-compact rounded-xl text-xs font-bold" value={modal.data.expiry || ''} onChange={e => setModal({...modal, data: {...modal.data, expiry: e.target.value}})} />
+														</div>
+													</div>
 
-                                    const coll = (modal.type === 'edit_order' ? 'orders' : (modal.type === 'prod' ? 'products' : (modal.type === 'cat' ? 'categories' : (modal.type === 'set' ? 'sets' : (modal.type === 'coupon' ? 'coupons' : (modal.dataType === 'materials' ? 'materials' : 'addons'))))));
-                                    
-                                    // Handle item editor sorting
-                                    let nextSortOrder = 99;
-                                    if (!modal.data.id) {
-                                        // ... existing sort order logic ...
-                                        if (coll === 'products') {
-                                            const currentList = products.filter(i => i.categoryId === modal.data.categoryId);
-                                            nextSortOrder = currentList.length > 0 ? Math.max(...currentList.map(i => i.sortOrder || 0)) + 1 : 0;
-                                        } else if (coll === 'categories') {
-                                            nextSortOrder = categories.length > 0 ? Math.max(...categories.map(i => i.sortOrder || 0)) + 1 : 0;
-                                        } else if (coll === 'sets') {
-                                            nextSortOrder = sets.length > 0 ? Math.max(...sets.map(i => i.sortOrder || 0)) + 1 : 0;
-                                        } else if (coll === 'materials' || coll === 'addons') {
-                                            // New Item in group
-                                            const items = coll === 'materials' ? materials : addons;
-                                            const currentList = items.filter(i => i.category === modal.data.category);
-                                            nextSortOrder = currentList.length > 0 ? Math.max(...currentList.map(i => i.sortOrder || 0)) + 1 : 0;
-                                        }
-                                    }
-                                    
-                                    const dataToSave = {...modal.data};
-                                    // ... existing save logic ...
-                                    if(coll === 'sets' && dataToSave.contents) {
-                                        dataToSave.contents = dataToSave.contents.map(c => {
-                                            const { tempFilterCategoryId, ...rest } = c;
-                                            return rest;
-                                        });
-                                    }
+													<div className="space-y-1.5"><label className="text-[11px] font-black text-slate-400 ml-1">詳細描述</label><textarea className="w-full input-compact rounded-xl font-bold h-20 resize-none" value={modal.data.desc} onChange={e => setModal({...modal, data: {...modal.data, desc: e.target.value}})} placeholder="例如: 本優惠不可與其他套餐活動並用..."></textarea></div>
+												</div>
+											</div>
+										)}
+										{modal.type === 'prod' && (
+											<>
+												<div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 space-y-4">
+													<div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">名稱</label><input className="w-full input-compact rounded-lg font-bold" value={modal.data.name} onChange={e => setModal({...modal, data: {...modal.data, name: e.target.value}})} /></div>
+													<div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">分類</label><CustomSelect value={modal.data.categoryId} options={categories.map(c => ({ value: c.id, label: c.name }))} onChange={val => setModal({...modal, data: {...modal.data, categoryId: val}})} /></div>
+													<div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">標籤</label><MultiSelect value={modal.data.tags || []} options={(settings.productTags || []).map(t => ({value: t.id, label: t.label}))} onChange={val => setModal({...modal, data: {...modal.data, tags: val}})} placeholder="選擇標籤..." /></div>
+													<div className="space-y-2 pt-2">
+														<label className="text-[10px] font-bold text-slate-500 uppercase flex justify-between"><span>規格與價格</span><button onClick={()=>{ let n = [...(modal.data.variants||[])]; if(n.length === 0) { n = [{name: '原味/單一', price: modal.data.price, materials: []}, {name: '新規格', price: modal.data.price, materials: []}]; } else { n.push({name: '新規格', price: 0, materials: []}); } setModal({...modal, data: {...modal.data, variants: n}}); }} className="text-[#5B2274] hover:underline">+ 新增規格</button></label>
+														
+														{(!modal.data.variants || modal.data.variants.length === 0) && (
+															<div className="space-y-2">
+																<div className="flex gap-2"><div className="bg-slate-100 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-500 flex items-center justify-center w-24">單一規格</div><input type="number" className="flex-1 input-compact rounded-lg font-bold" value={modal.data.price} onChange={e => setModal({...modal, data: {...modal.data, price: parseInt(e.target.value)||0}})} placeholder="價格" /></div>
+																<div className="flex gap-2 items-center"><span className="text-xs font-bold text-slate-400 w-24 text-center">綁定原物料</span><div className="flex-1"><MultiSelect value={modal.data.materials || []} options={materials.map(m => ({value: m.id, label: m.name}))} onChange={val => setModal({...modal, data: {...modal.data, materials: val}})} placeholder="選擇原物料 (影響庫存)..." /></div></div>
+															</div>
+														)}
+														
+														{modal.data.variants?.map((v, idx) => (
+															<div key={idx} className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2">
+																<div className="flex gap-2">
+																	<input className="flex-1 input-compact rounded-lg font-bold" value={v.name} onChange={e=>{const n=[...modal.data.variants]; n[idx].name=e.target.value; setModal({...modal, data: {...modal.data, variants: n}})}} placeholder="如: 大杯" />
+																	<input type="number" className="w-24 input-compact rounded-lg font-bold" value={v.price} onChange={e=>{const n=[...modal.data.variants]; n[idx].price=parseInt(e.target.value)||0; setModal({...modal, data: {...modal.data, variants: n}})}} placeholder="$" />
+																	<button onClick={()=>{ let n=modal.data.variants.filter((_,i)=>i!==idx); if (n.length === 1) { setModal({...modal, data: {...modal.data, price: n[0].price, variants: [], materials: []}}); } else { setModal({...modal, data: {...modal.data, variants: n}}); } }} className="p-1.5 text-slate-400 hover:text-red-500"><Icon name="Trash2" size={16}/></button>
+																</div>
+																<div className="flex items-center gap-2">
+																	<Icon name="Link" size={14} className="text-slate-400" />
+																	<div className="flex-1"><MultiSelect value={v.materials || []} options={materials.map(m => ({value: m.id, label: m.name}))} onChange={val => { const n = [...modal.data.variants]; n[idx].materials = val; setModal({...modal, data: {...modal.data, variants: n}}); }} placeholder="此規格綁定原物料..." /></div>
+																</div>
+															</div>
+														))}
+													</div>
+													<div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">圖片 URL</label><div className="flex gap-2"><input className="w-full input-compact rounded-lg font-bold" value={modal.data.image} onChange={e => setModal({...modal, data: {...modal.data, image: e.target.value}})} /><button onClick={() => openCloudinaryWidget((url) => setModal({...modal, data: {...modal.data, image: url}}))} className="bg-slate-100 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-200 transition-colors font-bold flex items-center gap-1 whitespace-nowrap"><Icon name="UploadCloud" size={16} /> 上傳</button></div></div>
+													<div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">描述</label><textarea className="w-full input-compact rounded-lg font-bold h-16 resize-none" value={modal.data.desc} onChange={e => setModal({...modal, data: {...modal.data, desc: e.target.value}})}></textarea></div>
+													<div className="space-y-1"><label className="text-[10px] font-bold text-amber-600 uppercase">廚房備註</label><input className="w-full input-compact rounded-lg bg-amber-50 border border-amber-100 font-bold" value={modal.data.note} onChange={e => setModal({...modal, data: {...modal.data, note: e.target.value}})} /></div>
+												</div>
+												<div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 space-y-3">
+													<label className="text-[10px] font-bold text-slate-500 uppercase">適用客製化選項 (勾選開放)</label>
+													{processGroups('customization').map((group, gIdx) => (
+														<div key={gIdx} className="space-y-1">
+															<p className="text-xs font-black text-slate-400">{group.name}</p>
+															<div className="flex flex-wrap gap-2">{group.items.map(ad => { const isSelected = modal.data.allowAddons?.includes(ad.id); return ( <button key={ad.id} onClick={()=>{ const current = modal.data.allowAddons || []; const next = isSelected ? current.filter(id => id !== ad.id) : [...current, ad.id]; setModal({...modal, data: {...modal.data, allowAddons: next}}); }} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${isSelected ? 'bg-[#5B2274] text-white border-[#5B2274]' : 'bg-white text-slate-500 border-slate-200'}`}> {ad.name} <span className="opacity-75">+${ad.price}</span> </button> ) })}</div>
+														</div>
+													))}
+													{addons.length === 0 && <span className="text-xs text-slate-400">請先在客製化頁面建立選項</span>}
+												</div>
+												<div className="bg-purple-50 p-5 rounded-xl border border-purple-100 space-y-4">
+													<div className="flex justify-between items-center"><div className="flex items-center gap-2 text-[#5B2274]"><Icon name="Sparkles" size={16}/><span className="font-bold text-sm">附餐群組 (多選)</span></div><Button variant="secondary" size="small" icon="Plus" onClick={()=>{ const n = [...(modal.data.sideGroups||[])]; n.push({id: Date.now(), title: '選擇附餐', categoryId: '', required: true, allowChange: true, defaultProductId: '', defaultVariantName: ''}); setModal({...modal, data: {...modal.data, sideGroups: n}}); }}>新增群組</Button></div>
+													{(modal.data.sideGroups||[]).map((group, idx) => {
+														const groupProducts = products.filter(p => p.categoryId === group.categoryId);
+														const defaultProduct = products.find(p => p.id === group.defaultProductId);
+														return (
+															<div key={idx} className="bg-white p-4 rounded-xl border border-purple-100 shadow-sm space-y-3 relative group" style={{zIndex: 50 - idx}}>
+																<button onClick={()=>{const n=modal.data.sideGroups.filter((_,i)=>i!==idx); setModal({...modal, data: {...modal.data, sideGroups: n}})}} className="absolute top-2 right-2 text-slate-300 hover:text-red-500"><Icon name="X" size={14}/></button>
+																<div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">群組標題</label><input className="w-full input-compact rounded-lg font-bold" value={group.title} onChange={e=>{const n=[...modal.data.sideGroups]; n[idx].title=e.target.value; setModal({...modal, data: {...modal.data, sideGroups: n}})}} /></div>
+																<div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">來源分類</label><CustomSelect value={group.categoryId} options={categories.map(c => ({ value: c.id, label: c.name }))} onChange={val=>{const n=[...modal.data.sideGroups]; n[idx].categoryId=val; n[idx].defaultProductId=''; n[idx].defaultVariantName=''; setModal({...modal, data: {...modal.data, sideGroups: n}})}} /></div>
+																<div className="flex items-center gap-2 pt-2"><ToggleSwitch checked={group.allowChange} onChange={c=>{const n=[...modal.data.sideGroups]; n[idx].allowChange=c; setModal({...modal, data: {...modal.data, sideGroups: n}})}} /><span className="text-[10px] font-bold text-slate-500">允許更換 (開啟即自動補差價)</span></div>
+																{group.allowChange && group.categoryId && (
+																	<div className="p-2 bg-slate-50 rounded-lg space-y-2 border border-slate-100 mt-2">
+																		<div className="space-y-1"><label className="text-[9px] font-bold text-slate-400">基準品項 (差價=0)</label><CustomSelect value={group.defaultProductId} options={groupProducts.map(p => ({ value: p.id, label: p.name + ` ($${p.price})` }))} onChange={val=>{const n=[...modal.data.sideGroups]; n[idx].defaultProductId=val; n[idx].defaultVariantName=''; setModal({...modal, data: {...modal.data, sideGroups: n}})}} searchable={true} /></div>
+																		{defaultProduct?.variants?.length > 0 && (<div className="space-y-1"><label className="text-[9px] font-bold text-slate-400">基準規格</label><CustomSelect value={group.defaultVariantName} options={defaultProduct.variants.map(v => ({ value: v.name, label: v.name + ` ($${v.price})` }))} onChange={val=>{const n=[...modal.data.sideGroups]; n[idx].defaultVariantName=val; setModal({...modal, data: {...modal.data, sideGroups: n}})}} /></div>)}
+																	</div>
+																)}
+															</div>
+														);
+													})}
+													{(modal.data.sideGroups||[]).length === 0 && <div className="text-center text-xs text-purple-300 py-2">無附餐設定</div>}
+												</div>
+												<div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 space-y-3"><label className="text-[10px] font-bold text-slate-500 uppercase">可搭配套餐</label><div className="grid grid-cols-2 gap-2">{sets.map(s => (<button key={s.id} onClick={() => { const current = modal.data.allowSets || []; const next = current.includes(s.id) ? current.filter(id => id !== s.id) : [...current, s.id]; setModal({...modal, data: {...modal.data, allowSets: next}}); }} className={`p-2 rounded-lg border text-xs font-bold flex justify-between transition-all ${modal.data.allowSets?.includes(s.id) ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200'}`}><span>{s.name}</span><span className="opacity-70">+${s.price}</span></button>))}</div></div>
+											</>
+										)}
+										{modal.type === 'member_detail' && (() => {
+											const m = modal.data;
+											const mOrders = orders.filter(o => o.customerUid === m.id);
+											return (
+												<div className="flex flex-col h-full bg-slate-50">
+													{/* Header */}
+													<div className="px-8 py-6 bg-white border-b border-slate-100 flex justify-between items-center shrink-0">
+														<div className="flex items-center gap-4">
+															<div className="w-14 h-14 rounded-3xl bg-purple-600 text-white flex items-center justify-center text-xl font-black shadow-lg shadow-purple-200">{m.displayName?.[0]}</div>
+															<div>
+																<div className="text-xl font-[1000] text-slate-800">{m.displayName}</div>
+																<div className="text-xs font-bold text-slate-400">UID: {m.id?.slice(-8)}</div>
+															</div>
+														</div>
+														<button onClick={()=>setModal(null)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400"><Icon name="X" size={24}/></button>
+													</div>
 
-                                    if(modal.data.id) dbOp('update', coll, modal.data.id, dataToSave);
-                                    else dbOp('add', coll, null, {...dataToSave, sortOrder: nextSortOrder});
-                                    setModal(null); 
-                                }}>儲存</Button></div>
-                            </div>
+													<div className="flex-1 overflow-y-auto p-6 space-y-6 no-scrollbar">
+														{/* 數據看板 */}
+														<div className="grid grid-cols-3 gap-4">
+															<div className="bg-white p-4 rounded-3xl border border-slate-100 text-center shadow-sm">
+																<div className="text-[10px] font-black text-slate-400 uppercase mb-1">訂餐次數</div>
+																<div className="text-xl font-[1000] text-slate-800">{m.orderCount}</div>
+															</div>
+															<div className="bg-white p-4 rounded-3xl border border-slate-100 text-center shadow-sm">
+																<div className="text-[10px] font-black text-slate-400 uppercase mb-1">平均客單</div>
+																<div className="text-xl font-[1000] text-slate-800">${m.avgSpend}</div>
+															</div>
+															<div className="bg-white p-4 rounded-3xl border border-slate-100 text-center shadow-sm">
+																<div className="text-[10px] font-black text-slate-400 uppercase mb-1">累積消費</div>
+																<div className="text-xl font-[1000] text-[#5B2274]">${m.totalSpend}</div>
+															</div>
+														</div>
+
+														{/* 派發優惠券 [新功能] */}
+														<div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 space-y-4">
+															<div className="flex items-center gap-2 text-[10px] font-black text-[#5B2274] uppercase tracking-widest"><Icon name="Ticket" size={14}/> 派發指定優惠券</div>
+															<div className="flex gap-2">
+																<select id="couponSelect" className="flex-1 bg-slate-50 border-none rounded-xl px-4 py-3 text-sm font-bold text-slate-600 focus:ring-2 focus:ring-purple-100">
+																	<option value="">請選擇要派發的優惠券...</option>
+																	{coupons.map(c => <option key={c.id} value={c.id}>{c.title} ({c.code})</option>)}
+																</select>
+																<button onClick={async () => {
+																	const cId = document.getElementById('couponSelect').value;
+																	if(!cId) return;
+																	const coupon = coupons.find(c => c.id === cId);
+																	const userCoupons = m.coupons || [];
+																	// 派發邏輯：寫入使用者的單獨 coupon 集合或陣列
+																	try {
+																		const userRef = getUserDocRef(m.id);
+																		await setDoc(userRef, {
+																			coupons: [...userCoupons, { ...coupon, issuedAt: new Date().toISOString(), used: false, uniqueId: Date.now() }]
+																		}, { merge: true });
+																		alert(`✅ 已成功派發「${coupon.title}」給 ${m.displayName}`);
+																	} catch(e) { alert("派發失敗"); }
+																}} className="bg-[#5B2274] text-white px-6 rounded-xl font-black text-xs hover:bg-purple-800 transition-colors shadow-md shadow-purple-100">派送</button>
+															</div>
+														</div>
+
+														{/* 歷史訂單紀錄 */}
+														<div className="space-y-3">
+															<div className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">歷史訂單紀錄</div>
+															<div className="space-y-3">
+																{mOrders.map(o => (
+																	<div key={o.id} className="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-100 flex justify-between items-center group hover:border-[#5B2274]/30 transition-all cursor-pointer" onClick={()=>setModal({type:'edit_order', data:o})}>
+																		<div className="flex items-center gap-4">
+																			<div className={`w-2 h-2 rounded-full ${STATUS_STYLE[o.status]?.text.replace('text-', 'bg-')}`}></div>
+																			<div>
+																				<div className="text-sm font-black text-slate-700">{o.userInfo?.pickupDate} - {o.userInfo?.pickupTime}</div>
+																				<div className="text-[10px] text-slate-400 font-bold uppercase">{o.items?.length} 品項 · {STATUS_STYLE[o.status]?.label}</div>
+																			</div>
+																		</div>
+																		<div className="text-lg font-[1000] text-slate-800">${o.totalPrice}</div>
+																	</div>
+																))}
+																{mOrders.length === 0 && <div className="text-center py-10 text-slate-300 text-xs font-bold italic">尚無訂單紀錄</div>}
+															</div>
+														</div>
+													</div>
+												</div>
+											);
+										})()}
+										
+										{modal.type === 'cat' && <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100"><label className="text-[10px] font-bold text-slate-500 uppercase">分類名稱</label><input className="w-full input-compact rounded-lg font-bold mt-1" value={modal.data.name} onChange={e => setModal({...modal, data: {...modal.data, name: e.target.value}})} /></div>}
+										{modal.type === 'set' && (
+											<div className="space-y-6">
+												{/* ... Set Modal Content ... */}
+												<div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 grid grid-cols-3 gap-3">
+													<div className="col-span-2 space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">名稱</label><input className="w-full input-compact rounded-lg font-bold" value={modal.data.name} onChange={e => setModal({...modal, data: {...modal.data, name: e.target.value}})} /></div>
+													<div className="space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">加價</label><input type="number" className="w-full input-compact rounded-lg font-bold" value={modal.data.price} onChange={e => setModal({...modal, data: {...modal.data, price: parseInt(e.target.value)||0}})} /></div>
+													<div className="col-span-3 space-y-1"><label className="text-[10px] font-bold text-slate-500 uppercase">圖片 URL</label><div className="flex gap-2"><input className="w-full input-compact rounded-lg font-bold" value={modal.data.image} onChange={e => setModal({...modal, data: {...modal.data, image: e.target.value}})} placeholder="https://..." /><button onClick={() => openCloudinaryWidget((url) => setModal({...modal, data: {...modal.data, image: url}}))} className="bg-slate-100 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-200 transition-colors font-bold flex items-center gap-1 whitespace-nowrap"><Icon name="UploadCloud" size={16} /> 上傳</button></div></div>
+												</div>
+												<div className="space-y-3">
+													<div className="flex justify-between items-center"><label className="text-[10px] font-black text-[#5B2274] uppercase">套餐結構</label><Button variant="secondary" size="small" icon="Plus" onClick={() => { const newItem = { label: '新項目', type: 'category', defaultProductId: '', allowChange: true }; setModal({...modal, data: {...modal.data, contents: [...(modal.data.contents || []), newItem]}}); }}>新增欄位</Button></div>
+													<div className="space-y-2">{(modal.data.contents || []).map((item, idx) => {
+														const slotProducts = products.filter(p=>p.categoryId===item.categoryId);
+														const defaultProduct = products.find(p=>p.id===item.defaultProductId);
+														const fixedProduct = products.find(p=>p.id===item.productId);
+														const filterCategoryId = item.tempFilterCategoryId || fixedProduct?.categoryId || '';
+														const filteredFixedProducts = products.filter(p => p.categoryId === filterCategoryId);
+
+														return (
+															<div key={idx} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 relative group animate-fade-in" style={{zIndex: 50 - idx}}>
+																<button onClick={() => { const next = modal.data.contents.filter((_, i) => i !== idx); setModal({...modal, data: {...modal.data, contents: next}}); }} className="absolute top-2 right-2 text-slate-300 hover:text-red-500"><Icon name="X" size={14}/></button>
+																<div className="grid grid-cols-2 gap-3 mb-3"><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">標籤</label><input className="w-full input-compact rounded-lg font-bold" value={item.label} onChange={e => { const next = [...modal.data.contents]; next[idx].label = e.target.value; setModal({...modal, data: {...modal.data, contents: next}}); }} /></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">類型</label><CustomSelect value={item.type} options={[{value: 'fixed', label: '指定固定品項'}, {value: 'category', label: '開放分類選品'}]} onChange={val => { const next = [...modal.data.contents]; next[idx].type = val; setModal({...modal, data: {...modal.data, contents: next}}); }} /></div></div>
+																{item.type === 'category' && (
+																	<div className="space-y-3">
+																		<div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">來源分類</label><CustomSelect value={item.categoryId} options={categories.map(c => ({value: c.id, label: c.name}))} onChange={val => { const next = [...modal.data.contents]; next[idx].categoryId = val; next[idx].defaultProductId=''; next[idx].defaultVariantName=''; setModal({...modal, data: {...modal.data, contents: next}}); }} /></div>
+																		<div className="flex items-center gap-2 pt-1"><ToggleSwitch checked={item.allowChange} onChange={c => { const next = [...modal.data.contents]; next[idx].allowChange = c; setModal({...modal, data: {...modal.data, contents: next}}); }} /><span className="text-xs font-bold text-slate-500">允許更換 (開啟即自動補差價)</span></div>
+																		{item.allowChange && (
+																			<>
+																				<div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">預設品項</label><CustomSelect value={item.defaultProductId} options={slotProducts.map(p => ({value: p.id, label: p.name}))} onChange={val => { const next = [...modal.data.contents]; next[idx].defaultProductId = val; next[idx].defaultVariantName=''; setModal({...modal, data: {...modal.data, contents: next}}); }} searchable={true} /></div>
+																				{defaultProduct?.variants?.length > 0 && (<div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">預設規格</label><CustomSelect value={item.defaultVariantName} options={defaultProduct.variants.map(v => ({value: v.name, label: v.name}))} onChange={val => { const next = [...modal.data.contents]; next[idx].defaultVariantName = val; setModal({...modal, data: {...modal.data, contents: next}}); }} /></div>)}
+																			</>
+																		)}
+																	</div>
+																)}
+																{item.type === 'fixed' && (
+																	<div className="space-y-3 bg-slate-50 p-3 rounded-lg border border-slate-100">
+																		<div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">篩選分類</label><CustomSelect value={filterCategoryId} options={categories.map(c => ({value: c.id, label: c.name}))} onChange={val => { const next = [...modal.data.contents]; next[idx].tempFilterCategoryId = val; setModal({...modal, data: {...modal.data, contents: next}}); }} /></div>
+																		<div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">指定品項</label><CustomSelect value={item.productId} options={filteredFixedProducts.map(p => ({value: p.id, label: p.name}))} onChange={val => { const next = [...modal.data.contents]; next[idx].productId = val; next[idx].variantName=''; setModal({...modal, data: {...modal.data, contents: next}}); }} searchable={true} /></div>
+																		{fixedProduct?.variants?.length > 0 && (<div className="space-y-1"><label className="text-[10px] font-bold text-slate-400">指定規格</label><CustomSelect value={item.variantName} options={fixedProduct.variants.map(v => ({value: v.name, label: v.name}))} onChange={val => { const next = [...modal.data.contents]; next[idx].variantName = val; setModal({...modal, data: {...modal.data, contents: next}}); }} /></div>)}
+																	</div>
+																)}
+															</div>
+														);
+													})}</div>
+												</div>
+											</div>
+										)}
+										{modal.type === 'edit_order' && (
+											<div className="fixed inset-0 z-[100] flex items-end justify-center">
+												<div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setModal(null)} />
+												<div className="bg-white w-full max-w-2xl rounded-t-[2.5rem] shadow-2xl relative z-10 flex flex-col overflow-hidden drawer-up no-scrollbar" style={{height: '92vh'}}>
+													{(() => {
+														const st = STATUS_STYLE[modal.data.status] || STATUS_STYLE.pending;
+														return (
+															<div className="flex flex-col h-full bg-white">
+																{/* Header */}
+																<div className={`px-6 py-5 flex justify-between items-center border-b shrink-0 ${st.bg} ${st.border}`}>
+																	<div className="flex items-center gap-3">
+																		<div className="p-2 rounded-xl bg-white/60"><Icon name={st.icon} size={20} className={st.text}/></div>
+																		<div><div className={`text-[10px] font-black uppercase ${st.text}`}>{st.label}</div><div className="text-base font-[1000] text-slate-800">單號 #{modal.data.orderId?.slice(-6)}</div></div>
+																	</div>
+																	<button onClick={() => setModal(null)} className="w-10 h-10 rounded-full bg-white/50 flex items-center justify-center text-slate-400 hover:text-slate-600"><Icon name="X" size={24}/></button>
+																</div>
+
+																<div className="flex-1 overflow-y-auto p-6 space-y-8 no-scrollbar">
+																	{/* 顧客核心資訊 (唯一保留的塊) */}
+																	<div className="bg-slate-50 p-6 rounded-[2rem] flex justify-between items-center">
+																		<div className="space-y-1">
+																			<div className="text-xl font-[1000] text-slate-800">{modal.data.userInfo?.name}</div>
+																			<a href={`tel:${modal.data.userInfo?.phone}`} className="text-xs font-bold text-blue-500 flex items-center gap-1"><Icon name="Phone" size={12}/> {modal.data.userInfo?.phone}</a>
+																			<div className="text-[10px] font-bold text-slate-400">取餐日期：{modal.data.userInfo?.pickupDate}</div>
+																		</div>
+																		<div className="text-right">
+																			<div className="text-[10px] font-black text-slate-400 mb-1 uppercase">預計取餐</div>
+																			<div className={`text-4xl font-[1000] tracking-tighter ${modal.data.userInfo?.pickupTime==='ASAP'?'text-red-500 animate-pulse':'text-[#5B2274]'}`}>{modal.data.userInfo?.pickupTime}</div>
+																		</div>
+																	</div>
+
+																	{/* 訂單明細 (層級化顯示) */}
+																	<div className="space-y-6">
+																		<div className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">餐點明細內容</div>
+																		{modal.data.items?.map((item, idx) => (
+																			<div key={idx} className="space-y-1.5">
+																				<div className="flex justify-between items-start">
+																					<div className="flex gap-3">
+																						<span className="font-black text-[#5B2274] text-sm bg-purple-50 px-2 py-0.5 rounded-lg">{item.qty}x</span>
+																						<span className="font-black text-slate-800 text-sm">{item.name} {item.variantName && <span className="text-slate-400 font-bold">({item.variantName})</span>}</span>
+																					</div>
+																					<span className="text-sm font-bold text-slate-700">${item.totalPrice}</span>
+																				</div>
+																				{/* 縮排層級：客製化、套餐與備註 */}
+																				<div className="order-detail-list-line space-y-1">
+																					{item.addons?.map((ad, ai) => <div key={ai} className="text-xs font-bold text-amber-600">+ {ad.name}</div>)}
+																					{item.setContents?.map((sc, si) => <div key={si} className="text-xs text-slate-500">• {sc.label}: <span className="text-slate-700 font-bold">{sc.name}</span> {sc.variantName && <span className="text-[10px]">({sc.variantName})</span>}</div>)}
+																					{item.note && <div className="text-[11px] text-red-500 font-bold mt-1 bg-red-50 px-2 py-0.5 rounded-md w-fit">備註：{item.note}</div>}
+																				</div>
+																			</div>
+																		))}
+																	</div>
+
+																	{/* 金額總計 */}
+																	<div className="pt-6 border-t border-dashed border-slate-200 space-y-2">
+																		<div className="flex justify-between text-xs font-bold text-slate-400"><span>小計 Subtotal</span><span>${modal.data.originalPrice || modal.data.totalPrice}</span></div>
+																		{modal.data.discountAmount > 0 && <div className="flex justify-between text-xs font-bold text-red-400"><span>優惠折扣</span><span>-${modal.data.discountAmount}</span></div>}
+																		<div className="flex justify-between items-center pt-2"><span className="text-sm font-black text-slate-800">應收總計</span><span className="text-3xl font-[1000] text-[#5B2274]">${modal.data.totalPrice}</span></div>
+																	</div>
+
+																	{/* 註記聯動區塊 */}
+																	<div className="pt-4 space-y-6">
+																		<div className="space-y-2">
+																			<div className="flex items-center gap-2 text-[10px] font-black text-amber-700 uppercase"><Icon name="User" size={12}/> 顧客永久註記 (跨單聯動)</div>
+																			<div className="flex gap-2 bg-amber-50/50 p-4 rounded-[1.5rem] border border-amber-100">
+																				<textarea className="flex-1 bg-transparent text-xs font-bold text-slate-700 resize-none outline-none" rows="2" value={customerNote} onChange={(e)=>setCustomerNote(e.target.value)} placeholder="點此輸入..." />
+																				<button onClick={saveCustomerNote} className="bg-amber-400 text-white p-2.5 rounded-xl self-end shadow-sm active:scale-95"><Icon name="Save" size={18}/></button>
+																			</div>
+																		</div>
+																		<div className="flex gap-4 items-center">
+																			<div className="flex-1 space-y-2">
+																				<div className="text-[10px] font-black text-slate-400 uppercase">此單後台備註</div>
+																				<input className="w-full bg-slate-100 border-none rounded-xl px-4 py-2.5 text-xs font-bold text-slate-600" value={modal.data.adminNote || ''} onChange={e => setModal({...modal, data: {...modal.data, adminNote: e.target.value}})} placeholder="輸入..." />
+																			</div>
+																			<div className="space-y-2 shrink-0">
+																				<div className="text-[10px] font-black text-slate-400 uppercase">付款核銷</div>
+																				<div className="flex items-center h-10"><ToggleSwitch checked={modal.data.verified} onChange={(c)=>setModal({...modal, data:{...modal.data, verified:c}})} /></div>
+																			</div>
+																		</div>
+																	</div>
+
+																	<div className="text-center pt-8 pb-12"><button onClick={() => { if(confirm("確定永久刪除？")) { dbOp('delete', 'orders', modal.data.id); setModal(null); }}} className="text-[10px] font-bold text-slate-300 hover:text-red-500 underline tracking-widest">永久刪除此訂單</button></div>
+																</div>
+																
+																{/* 底部操作鈕 */}
+																{!['completed', 'cancelled'].includes(modal.data.status) && (
+																	<div className="p-5 bg-white border-t border-slate-100 pb-10">
+																		<div className="flex gap-3">
+																			{modal.data.status === 'pending' && (<><button onClick={() => { if(confirm('拒絕？')) handleUpdateOrderStatus(modal.data.id, 'cancelled'); }} className="flex-1 py-4 bg-slate-100 text-slate-400 font-bold rounded-2xl text-xs">拒絕</button><button onClick={() => handleUpdateOrderStatus(modal.data.id, 'confirmed')} className="flex-[2] py-4 bg-blue-600 text-white font-black rounded-2xl shadow-lg shadow-blue-200">確認接單</button></>)}
+																			{modal.data.status === 'confirmed' && <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'preparing')} className="w-full py-5 rounded-2xl bg-orange-500 text-white font-black flex items-center justify-center gap-2 text-sm shadow-lg shadow-orange-100"><Icon name="Flame" size={20}/> 開始製作餐點</button>}
+																			{modal.data.status === 'preparing' && <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'ready')} className="w-full py-5 rounded-2xl bg-emerald-500 text-white font-black flex items-center justify-center gap-2 text-sm shadow-lg shadow-emerald-100"><Icon name="CheckCircle" size={20}/> 製作完成，通知取餐</button>}
+																			{modal.data.status === 'ready' && <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'completed')} className="w-full py-5 rounded-2xl bg-[#5B2274] text-white font-black flex items-center justify-center gap-2 text-sm shadow-lg shadow-purple-200"><Icon name="ShoppingBag" size={20}/> 已完成取餐 (結案)</button>}
+																		</div>
+																	</div>
+																)}
+															</div>
+														);
+													})()}
+												</div>
+											</div>
+										)}
+
+									</div>
+									<div className="p-5 bg-white border-t border-slate-100 flex gap-3">
+										<Button variant="secondary" className="flex-1" onClick={() => setModal(null)}>取消</Button>
+										<Button className="flex-[2]" icon="Save" onClick={async () => { 
+                                                // 1. 處理特殊類型的儲存
+                                                if (modal.type === 'tags') {
+                                                    await dbOp('set', 'settings', 'config', settings);
+                                                    setModal(null);
+                                                    return;
+                                                }
+
+                                                if (modal.type === 'group_mgmt') {
+                                                    // 群組在編輯時已即時儲存，直接關閉即可
+                                                    setModal(null);
+                                                    return;
+                                                }
+
+                                                // 2. 判斷資料表 (Collection)
+                                                const coll = (
+                                                    modal.type === 'prod' ? 'products' : 
+                                                    modal.type === 'cat' ? 'categories' : 
+                                                    modal.type === 'set' ? 'sets' : 
+                                                    modal.type === 'coupon' ? 'coupons' : 
+                                                    (modal.dataType === 'materials' ? 'materials' : 'addons')
+                                                );
+                                                
+                                                // 3. 自動處理新項目的排序 (Sort Order)
+                                                let nextSortOrder = 99;
+                                                if (!modal.data.id) {
+                                                    if (coll === 'products') {
+                                                        const currentList = products.filter(i => i.categoryId === modal.data.categoryId);
+                                                        nextSortOrder = currentList.length > 0 ? Math.max(...currentList.map(i => i.sortOrder || 0)) + 1 : 0;
+                                                    } else if (coll === 'categories') {
+                                                        nextSortOrder = categories.length > 0 ? Math.max(...categories.map(i => i.sortOrder || 0)) + 1 : 0;
+                                                    } else if (coll === 'sets') {
+                                                        nextSortOrder = sets.length > 0 ? Math.max(...sets.map(i => i.sortOrder || 0)) + 1 : 0;
+                                                    } else if (coll === 'materials' || coll === 'addons') {
+                                                        const items = coll === 'materials' ? materials : addons;
+                                                        const currentList = items.filter(i => i.category === modal.data.category);
+                                                        nextSortOrder = currentList.length > 0 ? Math.max(...currentList.map(i => i.sortOrder || 0)) + 1 : 0;
+                                                    }
+                                                }
+                                                
+                                                // 4. 資料清洗 (清理暫存或不需要存入資料庫的欄位)
+                                                const dataToSave = {...modal.data};
+                                                
+                                                // 若為套餐，移除 UI 顯示用的 tempFilterCategoryId
+                                                if(coll === 'sets' && dataToSave.contents) {
+                                                    dataToSave.contents = dataToSave.contents.map(c => {
+                                                        const { tempFilterCategoryId, ...rest } = c;
+                                                        return rest;
+                                                    });
+                                                }
+
+                                                // 5. 執行資料庫操作
+                                                try {
+                                                    if(modal.data.id) {
+                                                        await dbOp('update', coll, modal.data.id, dataToSave);
+                                                    } else {
+                                                        await dbOp('add', coll, null, {...dataToSave, sortOrder: nextSortOrder});
+                                                    }
+                                                    setModal(null); 
+                                                } catch (err) {
+                                                    console.error("Save failed:", err);
+                                                    alert("儲存失敗，請檢查網路連線或權限。");
+                                                }
+                                            }}>
+                                                儲存變更
+                                            </Button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
             );
         }
 
+        // 渲染根節點
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
 </body>
 </html>
-
 
