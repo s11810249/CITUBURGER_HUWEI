@@ -1642,94 +1642,141 @@
                                     {modal.type === 'edit_order' && (() => {
                                         const statusKey = modal.data.status in STATUS_STYLE ? modal.data.status : 'pending';
                                         const style = STATUS_STYLE[statusKey];
+                                        const isUrgent = modal.data.userInfo?.pickupTime === 'ASAP';
+                                        
                                         return (
                                             <div className="flex flex-col h-full bg-slate-50">
-                                                {/* 1. 頂部狀態列 */}
-                                                <div className={`px-8 py-6 flex justify-between items-center border-b shrink-0 ${style.bg} ${style.border}`}>
-                                                    <div className="flex items-center gap-4">
-                                                        <div className={`p-3 rounded-2xl bg-white/60 ${style.text}`}><Icon name={style.icon} size={24} /></div>
-                                                        <div>
-                                                            <div className={`text-xs font-black uppercase tracking-wider ${style.text}`}>{style.label}</div>
-                                                            <div className="text-lg font-[1000] text-slate-800">#{modal.data.orderId?.slice(-8)}</div>
-                                                        </div>
+                                                {/* 1. 頂部狀態列 - 顏色隨狀態變動 */}
+                                                <div className={`${style.bg} ${style.text} px-6 py-4 flex justify-between items-center border-b ${style.border}`}>
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="bg-white/80 p-2 rounded-xl shadow-sm"><Icon name={style.icon} size={20} /></div>
+                                                        <span className="font-[1000] text-lg tracking-tight">{style.label}</span>
                                                     </div>
-                                                    <button onClick={() => setModal(null)} className="w-10 h-10 rounded-full bg-white/50 flex items-center justify-center text-slate-400 hover:text-slate-600"><Icon name="X" size={24}/></button>
+                                                    <div className="text-right">
+                                                        <div className="text-[10px] font-black opacity-60 uppercase tracking-widest">Order ID</div>
+                                                        <div className="font-mono font-bold">#{modal.data.orderId?.slice(-8)}</div>
+                                                    </div>
                                                 </div>
                                     
-                                                <div className="flex-1 overflow-y-auto p-6 space-y-6 no-scrollbar">
-                                                    {/* 2. 顧客與時間卡片 */}
-                                                    <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 flex justify-between items-center">
-                                                        <div>
-                                                            <div className="text-2xl font-[1000] text-slate-800">{modal.data.userInfo?.name}</div>
-                                                            <a href={`tel:${modal.data.userInfo?.phone}`} className="text-sm font-bold text-blue-500 flex items-center gap-1 mt-1"><Icon name="Phone" size={14}/> {modal.data.userInfo?.phone}</a>
+                                                <div className="flex-1 overflow-y-auto p-5 space-y-5 no-scrollbar">
+                                                    
+                                                    {/* 2. 核心時間與顧客資訊卡片 */}
+                                                    <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60 flex justify-between items-center">
+                                                        <div className="space-y-1">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-[11px] font-black text-slate-400 uppercase tracking-tighter">顧客資訊</span>
+                                                                {modal.data.verified && <span className="bg-emerald-100 text-emerald-600 text-[9px] px-1.5 py-0.5 rounded-md font-bold flex items-center gap-1"><Icon name="Check" size={10}/>已付款</span>}
+                                                            </div>
+                                                            <div className="text-xl font-[1000] text-slate-800">{modal.data.userInfo?.name}</div>
+                                                            <a href={`tel:${modal.data.userInfo?.phone}`} className="text-xs font-bold text-blue-500 flex items-center gap-1"><Icon name="Phone" size={12}/> {modal.data.userInfo?.phone}</a>
                                                         </div>
                                                         <div className="text-right">
-                                                            <div className="text-xs text-slate-400 font-black uppercase mb-1">預計取餐</div>
-                                                            <div className={`text-4xl font-[1000] tracking-tighter ${modal.data.userInfo?.pickupTime==='ASAP'?'text-red-500 animate-pulse':'text-slate-800'}`}>{modal.data.userInfo?.pickupTime}</div>
+                                                            <div className="text-[11px] font-black text-slate-400 uppercase">預計取餐</div>
+                                                            <div className={`text-3xl font-[1000] tracking-tighter ${isUrgent ? 'text-red-500 animate-pulse' : 'text-slate-800'}`}>
+                                                                {modal.data.userInfo?.pickupTime}
+                                                            </div>
                                                         </div>
                                                     </div>
                                     
-                                                    {/* 3. 餐點明細清單 (核心優化) */}
-                                                    <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
-                                                        <div className="bg-slate-800 px-6 py-3 text-xs font-black text-white uppercase tracking-widest flex justify-between">
-                                                            <span>訂單內容清單</span>
-                                                            <span>{modal.data.items?.length} 品項</span>
+                                                    {/* 3. 訂單餐點清單 - 仿出單紙風格 */}
+                                                    <div className="bg-white rounded-3xl shadow-sm border border-slate-200/60 overflow-hidden">
+                                                        <div className="px-5 py-3 bg-slate-800 text-white text-[10px] font-black uppercase tracking-widest flex justify-between">
+                                                            <span>餐點內容物</span>
+                                                            <span>{modal.data.items?.reduce((s,i)=>s+i.qty, 0)} 品項</span>
                                                         </div>
-                                                        <div className="divide-y divide-slate-100">
+                                                        <div className="divide-y divide-slate-100 p-2">
                                                             {modal.data.items?.map((item, idx) => (
-                                                                <div key={idx} className="p-5 flex justify-between items-start">
+                                                                <div key={idx} className="p-3 flex justify-between items-start group">
                                                                     <div className="flex gap-4">
-                                                                        <div className="font-[1000] text-[#5B2274] text-xl bg-purple-50 w-10 h-10 rounded-xl flex items-center justify-center shrink-0">
-                                                                            {item.qty}x
+                                                                        <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center font-[1000] text-[#5B2274] shrink-0">
+                                                                            {item.qty}<span className="text-[10px] ml-0.5">x</span>
                                                                         </div>
-                                                                        <div>
-                                                                            <div className="font-[900] text-slate-700 text-lg leading-tight">{item.name}</div>
-                                                                            {item.variantName && <div className="text-xs text-slate-400 font-bold mt-1 bg-slate-50 inline-block px-2 py-0.5 rounded-lg border border-slate-100">{item.variantName}</div>}
-                                                                            {item.addons?.length > 0 && <div className="text-xs text-amber-600 font-bold mt-1">{item.addons.map(a=>a.name).join(', ')}</div>}
+                                                                        <div className="min-w-0">
+                                                                            <div className="font-[900] text-slate-800 text-base leading-tight mb-1">{item.name}</div>
+                                                                            <div className="flex flex-wrap gap-1">
+                                                                                {item.variantName && <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">{item.variantName}</span>}
+                                                                                {item.addons?.map((ad, ai) => <span key={ai} className="text-[10px] font-bold text-amber-600">+{ad.name}</span>)}
+                                                                            </div>
                                                                         </div>
                                                                     </div>
-                                                                    <div className="font-bold text-slate-800 text-lg">${item.totalPrice}</div>
+                                                                    <div className="text-sm font-bold text-slate-400 group-hover:text-slate-700 transition-colors">${item.totalPrice}</div>
                                                                 </div>
                                                             ))}
                                                         </div>
-                                                        {/* 金額計算區 */}
-                                                        <div className="bg-slate-50 p-6 border-t border-slate-100 space-y-2">
-                                                            <div className="flex justify-between items-center text-slate-400 font-bold text-xs"><span>小計 Subtotal</span><span>${modal.data.originalPrice || modal.data.totalPrice}</span></div>
-                                                            {modal.data.discountAmount > 0 && <div className="flex justify-between items-center text-red-500 font-bold text-xs"><span>折扣 Discount</span><span>-${modal.data.discountAmount}</span></div>}
-                                                            <div className="flex justify-between items-center pt-3 border-t border-slate-200 border-dashed mt-2"><span className="text-sm font-black text-slate-700 uppercase">應收總額 Total</span><span className="text-3xl font-[1000] text-[#5B2274]">${modal.data.totalPrice}</span></div>
+                                                        {/* 金額總結 */}
+                                                        <div className="p-5 bg-slate-50/50 border-t border-dashed border-slate-200 space-y-2">
+                                                            <div className="flex justify-between text-xs font-bold text-slate-400">
+                                                                <span>小計 Subtotal</span>
+                                                                <span>${modal.data.originalPrice || modal.data.totalPrice}</span>
+                                                            </div>
+                                                            {modal.data.discountAmount > 0 && (
+                                                                <div className="flex justify-between text-xs font-bold text-red-400">
+                                                                    <span>折扣額 Discount</span>
+                                                                    <span>-${modal.data.discountAmount}</span>
+                                                                </div>
+                                                            )}
+                                                            <div className="flex justify-between items-center pt-2">
+                                                                <span className="text-sm font-black text-slate-800">應收總計 TOTAL</span>
+                                                                <span className="text-2xl font-[1000] text-[#5B2274] tracking-tighter">${modal.data.totalPrice}</span>
+                                                            </div>
                                                         </div>
                                                     </div>
                                     
-                                                    {/* 4. 備註與設定區 */}
-                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                        <div className="bg-amber-50 p-4 rounded-3xl border border-amber-100 space-y-2">
-                                                            <div className="flex items-center gap-2 text-[10px] font-black text-amber-700 uppercase"><Icon name="User" size={14}/> 顧客永久註記</div>
+                                                    {/* 4. 備註區塊 - 改為卡片並排 */}
+                                                    <div className="grid grid-cols-1 gap-4">
+                                                        {/* 顧客註記 */}
+                                                        <div className="bg-amber-50/50 p-4 rounded-3xl border border-amber-100 space-y-2">
+                                                            <div className="flex items-center gap-2 text-[11px] font-black text-amber-700 uppercase"><Icon name="User" size={14}/> 顧客永久註記 (跨單顯示)</div>
                                                             <div className="flex gap-2">
-                                                                <textarea className="w-full bg-transparent text-sm font-bold text-slate-700 resize-none outline-none" rows="2" value={customerNote} onChange={(e) => setCustomerNote(e.target.value)} placeholder="點此輸入..."></textarea>
-                                                                <button onClick={saveCustomerNote} className="bg-amber-400 text-white p-2 rounded-xl self-end shadow-sm"><Icon name="Save" size={18}/></button>
+                                                                <textarea className="flex-1 bg-transparent text-sm font-bold text-slate-600 resize-none outline-none focus:ring-0" rows="2" value={customerNote} onChange={(e) => setCustomerNote(e.target.value)} placeholder="點此輸入對該顧客的特殊交代..."></textarea>
+                                                                <button onClick={saveCustomerNote} className="h-10 w-10 bg-amber-400 text-white rounded-xl flex items-center justify-center shadow-sm hover:scale-105 active:scale-95 transition-all"><Icon name="Save" size={18}/></button>
                                                             </div>
                                                         </div>
+                                    
+                                                        {/* 店家內部備註 */}
                                                         <div className="bg-white p-4 rounded-3xl border border-slate-200 space-y-2">
-                                                            <div className="flex justify-between items-center">
-                                                                <div className="text-[10px] font-black text-slate-400 uppercase">內部備註 / 核銷</div>
-                                                                <ToggleSwitch checked={modal.data.verified} onChange={(c)=>setModal({...modal, data:{...modal.data, verified:c}})} />
+                                                            <div className="flex items-center justify-between">
+                                                                <div className="flex items-center gap-2 text-[11px] font-black text-slate-400 uppercase"><Icon name="FileText" size={14}/> 內部備註 (僅此單)</div>
+                                                                <label className="flex items-center gap-2 cursor-pointer">
+                                                                    <span className="text-[10px] font-bold text-slate-400">核銷付款</span>
+                                                                    <ToggleSwitch checked={modal.data.verified} onChange={(checked) => setModal({...modal, data: {...modal.data, verified: checked}})} />
+                                                                </label>
                                                             </div>
-                                                            <input className="w-full bg-slate-50 border-none rounded-xl px-3 py-2 text-sm font-bold text-slate-600 focus:ring-1 focus:ring-purple-200" value={modal.data.adminNote || ''} onChange={e => setModal({...modal, data: {...modal.data, adminNote: e.target.value}})} placeholder="此單備註..." />
+                                                            <input className="w-full bg-slate-50 border-none rounded-xl px-4 py-2.5 text-sm font-bold text-slate-600 focus:ring-1 focus:ring-purple-200 transition-all" value={modal.data.adminNote || ''} onChange={e => setModal({...modal, data: {...modal.data, adminNote: e.target.value}})} placeholder="例如：已退款、此單加蛋招待..." />
                                                         </div>
                                                     </div>
                                     
-                                                    {/* 5. 刪除按鈕 */}
-                                                    <div className="text-center pb-4"><button onClick={() => { if(confirm("確定刪除？")) { dbOp('delete', 'orders', modal.data.id); setModal(null); }}} className="text-[10px] font-black text-slate-300 hover:text-red-500 underline uppercase tracking-widest">永久刪除此訂單 (Delete Order)</button></div>
+                                                    {/* 5. 危險操作區 */}
+                                                    <div className="text-center pt-2">
+                                                        <button onClick={() => { if(confirm("確定要永久刪除此訂單？")) { dbOp('delete', 'orders', modal.data.id); setModal(null); }}} className="text-[10px] font-bold text-slate-300 hover:text-red-400 transition-colors uppercase tracking-widest underline">永久刪除此訂單 (Delete Order)</button>
+                                                    </div>
                                                 </div>
                                                 
-                                                {/* 6. 底部動作按鈕 (大按鈕) */}
+                                                {/* 6. 底部固定按鈕區 - 根據狀態顯示大按鈕 */}
                                                 {!['completed', 'cancelled'].includes(modal.data.status) && (
-                                                    <div className="p-6 bg-white border-t border-slate-100 shadow-[0_-10px_20px_-5px_rgba(0,0,0,0.05)]">
-                                                        <div className="flex gap-4">
-                                                            {modal.data.status === 'pending' && (<><button onClick={() => { if(confirm('拒單？')) handleUpdateOrderStatus(modal.data.id, 'cancelled'); }} className="flex-1 py-4 bg-slate-100 text-slate-400 font-black rounded-2xl uppercase">拒絕</button><button onClick={() => handleUpdateOrderStatus(modal.data.id, 'confirmed')} className="flex-[2] py-4 bg-blue-600 text-white font-[1000] rounded-2xl shadow-lg shadow-blue-200 uppercase tracking-widest">接單 ACCEPT</button></>)}
-                                                            {modal.data.status === 'confirmed' && <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'preparing')} className="w-full py-5 rounded-2xl bg-orange-500 text-white font-[1000] shadow-lg shadow-orange-200 flex items-center justify-center gap-3 text-lg"><Icon name="Flame" size={24}/> 開始製作餐點</button>}
-                                                            {modal.data.status === 'preparing' && <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'ready')} className="w-full py-5 rounded-2xl bg-emerald-500 text-white font-[1000] shadow-lg shadow-emerald-200 flex items-center justify-center gap-3 text-lg"><Icon name="CheckCircle" size={24}/> 製作完成，通知取餐</button>}
-                                                            {modal.data.status === 'ready' && <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'completed')} className="w-full py-5 rounded-2xl bg-[#5B2274] text-white font-[1000] shadow-lg shadow-purple-200 flex items-center justify-center gap-3 text-lg"><Icon name="ShoppingBag" size={24}/> 完成取餐 (結案)</button>}
+                                                    <div className="p-5 bg-white border-t border-slate-100 shadow-[0_-10px_20px_-5px_rgba(0,0,0,0.05)]">
+                                                        <div className="flex gap-3">
+                                                            {modal.data.status === 'pending' && (
+                                                                <>
+                                                                    <button onClick={() => { if(confirm('拒絕接此訂單？')) handleUpdateOrderStatus(modal.data.id, 'cancelled'); }} className="flex-1 py-4 rounded-2xl bg-slate-100 text-slate-400 font-black text-sm hover:bg-red-50 hover:text-red-500 transition-all uppercase">拒絕接單</button>
+                                                                    <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'confirmed')} className="flex-[2] py-4 rounded-2xl bg-blue-600 text-white font-[1000] text-sm hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all uppercase tracking-widest">確認接單 (ACCEPT)</button>
+                                                                </>
+                                                            )}
+                                                            {modal.data.status === 'confirmed' && (
+                                                                <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'preparing')} className="w-full py-5 rounded-2xl bg-orange-500 text-white font-[1000] text-base hover:bg-orange-600 shadow-lg shadow-orange-200 transition-all flex items-center justify-center gap-3">
+                                                                    <Icon name="Flame" size={24}/> 開始製作餐點
+                                                                </button>
+                                                            )}
+                                                            {modal.data.status === 'preparing' && (
+                                                                <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'ready')} className="w-full py-5 rounded-2xl bg-emerald-500 text-white font-[1000] text-base hover:bg-emerald-600 shadow-lg shadow-emerald-200 transition-all flex items-center justify-center gap-3">
+                                                                    <Icon name="CheckCircle" size={24}/> 製作完成，通知顧客
+                                                                </button>
+                                                            )}
+                                                            {modal.data.status === 'ready' && (
+                                                                <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'completed')} className="w-full py-5 rounded-2xl bg-[#5B2274] text-white font-[1000] text-base hover:bg-purple-800 shadow-lg shadow-purple-200 transition-all flex items-center justify-center gap-3">
+                                                                    <Icon name="ShoppingBag" size={24}/> 完成取餐 (結案)
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 )}
