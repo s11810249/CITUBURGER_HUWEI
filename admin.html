@@ -107,6 +107,19 @@
         .animate-scale-in { animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
         .toggle-checkbox:checked { right: 0; border-color: #5B2274; }
         .toggle-checkbox:checked + .toggle-label { background-color: #5B2274; }
+
+        /* --- 優化樣式與動畫 --- */
+        @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+        @keyframes scaleIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        .animate-slide-in { animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        .animate-scale-in { animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        
+        /* 手機版 Header 優化 */
+        @media (max-width: 640px) {
+            .mobile-header-wrap { flex-direction: column; align-items: flex-start; gap: 1rem; }
+            .mobile-full-width { width: 100%; }
+            .mobile-scroll-x { overflow-x: auto; padding-bottom: 5px; width: 100%; -webkit-overflow-scrolling: touch; }
+        }
         
     </style>
 </head>
@@ -306,68 +319,89 @@
             const [settings, setSettings] = useState({ statusMode: 'auto', openTime: '06:00', closeTime: '13:30', phone: '', address: '', mapsUrl: '', closedDays: [], announcements: ['', '', ''], specialDates: [], productTags: [], cloudinaryCloudName: '', cloudinaryUploadPreset: '', materialGroups: [], addonGroups: [], liffId: '', liffIdBrowse: '' });
 
             // --- New Order UI States ---
-            const [subFilter, setSubFilter] = useState('all'); // 子狀態過濾 (all/pending/preparing...)
+            const [subFilter, setSubFilter] = useState('all'); // 子狀態過濾
             const [searchQuery, setSearchQuery] = useState(''); 
             const [isNotifyOpen, setIsNotifyOpen] = useState(false);
+            
+            // 日期相關
+            const todayStr = getTaiwanDateStr();
+            const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+            const tomorrowStr = tomorrow.toISOString().split('T')[0];
+            
+            const [historyDate, setHistoryDate] = useState(getTaiwanDateStr()); // 歷史日期
+            const [futureDate, setFutureDate] = useState(tomorrowStr); // 預約日期 (新增)
+            
+            // [Req 1] 通知列表 (轉為 State 以支援刪除)
+            const [notifications, setNotifications] = useState([
+                { id: 1, type: 'new', title: '系統通知', desc: '訂單管理系統已更新 V17.3', time: '剛剛', jumpStatus: 'pending' }
+            ]);
 
-            // 模擬通知資料 (可保留或串接後端)
-            const notifications = [
-                { id: 1, type: 'new', title: '系統通知', desc: '歡迎使用新版訂單管理系統', time: '剛剛', jumpStatus: 'pending' }
-            ];
-
-            // 訂單狀態樣式設定
-            const STATUS_STYLE = {
-                'pending':   { bg: 'bg-[#FFFBEB]', text: 'text-[#D97706]', label: '待確認', border: 'border-[#FCD34D]', icon: 'BellRing', chip: 'bg-amber-100 text-amber-700' },
-                'confirmed': { bg: 'bg-[#EFF6FF]', text: 'text-[#2563EB]', label: '已接單', border: 'border-[#BFDBFE]', icon: 'ChefHat', chip: 'bg-blue-100 text-blue-700' },
-                'preparing': { bg: 'bg-[#FFF7ED]', text: 'text-[#EA580C]', label: '製作中', border: 'border-[#FED7AA]', icon: 'Flame', chip: 'bg-orange-100 text-orange-700' },
-                'ready':     { bg: 'bg-[#F0FDF4]', text: 'text-[#16A34A]', label: '待取餐', border: 'border-[#BBF7D0]', icon: 'ShoppingBag', chip: 'bg-emerald-100 text-emerald-700' },
-                'completed': { bg: 'bg-slate-700', text: 'text-white', label: '已完成', border: 'border-slate-800', icon: 'CheckCircle2', chip: 'bg-slate-200 text-slate-700' },
-                'cancelled': { bg: 'bg-[#FEF2F2]', text: 'text-[#DC2626]', label: '已取消', border: 'border-[#FECACA]', icon: 'XCircle', chip: 'bg-red-100 text-red-700' }
+            const deleteNotification = (id) => {
+                setNotifications(prev => prev.filter(n => n.id !== id));
             };
 
-            // 計算各狀態數量
-            const getCounts = (status) => {
+            // [Req 5] 狀態樣式 (配合後台風格)
+            const STATUS_STYLE = {
+                'pending':   { bg: 'bg-amber-50', text: 'text-amber-600', label: '待確認', border: 'border-amber-200', icon: 'BellRing' },
+                'confirmed': { bg: 'bg-blue-50', text: 'text-blue-600', label: '已接單', border: 'border-blue-200', icon: 'ChefHat' },
+                'preparing': { bg: 'bg-orange-50', text: 'text-orange-600', label: '製作中', border: 'border-orange-200', icon: 'Flame' },
+                'ready':     { bg: 'bg-emerald-50', text: 'text-emerald-600', label: '待取餐', border: 'border-emerald-200', icon: 'ShoppingBag' },
+                'completed': { bg: 'bg-slate-100', text: 'text-slate-600', label: '已完成', border: 'border-slate-200', icon: 'CheckCircle2' },
+                'cancelled': { bg: 'bg-red-50', text: 'text-red-500', label: '已取消', border: 'border-red-200', icon: 'XCircle' }
+            };
+
+            // [Req 2, 3, 6] 統一過濾邏輯
+            // 計算各 Tab 的數量
+            const getTabCount = (tab) => {
                 return orders.filter(o => {
                     const pDate = o.userInfo?.pickupDate || '1970-01-01';
-                    const todayStr = getTaiwanDateStr();
-                    let matchTime = false;
+                    const isDone = ['completed', 'cancelled'].includes(o.status);
+                    if (tab === 'today') return pDate === todayStr && !isDone; // 今日未完成
+                    if (tab === 'future') return pDate > todayStr && !isDone;  // 未來未完成
+                    return false;
+                }).length;
+            };
+
+            // 計算目前過濾條件下的狀態數量
+            const getStatusCount = (status) => {
+                // 使用與 filteredOrders 相同的基礎邏輯 (但不含 status 篩選)
+                return orders.filter(o => {
+                    const pDate = o.userInfo?.pickupDate || '1970-01-01';
                     
-                    if (orderFilter === 'history') matchTime = (pDate === historyDate);
-                    else if (orderFilter === 'today') matchTime = (pDate === todayStr);
-                    else if (orderFilter === 'future') matchTime = (pDate > todayStr);
-                    else matchTime = (pDate === todayStr); // default today
+                    // 日期篩選
+                    if (orderFilter === 'history') { if (pDate !== historyDate) return false; }
+                    else if (orderFilter === 'future') { if (pDate !== futureDate) return false; }
+                    else { if (pDate !== todayStr) return false; } // default today
 
-                    if(!matchTime) return false;
-
-                    if(status === 'all') return !['completed', 'cancelled'].includes(o.status);
+                    if (status === 'all') return !['completed', 'cancelled'].includes(o.status);
                     return o.status === status;
                 }).length;
             };
 
-            // 統一過濾邏輯 (取代舊的 filter)
             const filteredOrders = useMemo(() => {
-                const todayStr = getTaiwanDateStr();
                 return orders.filter(o => {
                     const pDate = o.userInfo?.pickupDate || '1970-01-01';
                     const isDone = ['completed', 'cancelled'].includes(o.status);
                     
-                    // 1. Tab Logic
-                    let matchTab = false;
-                    if (orderFilter === 'history') matchTab = (pDate === historyDate);
-                    else if (orderFilter === 'today') matchTab = (pDate === todayStr);
-                    else if (orderFilter === 'future') matchTab = (pDate > todayStr);
-                    else matchTab = (pDate === todayStr); // default today (all)
-                    
-                    if (!matchTab) return false;
+                    // 1. 日期 Tab 邏輯 (修正切換問題)
+                    if (orderFilter === 'history') {
+                        if (pDate !== historyDate) return false;
+                    } else if (orderFilter === 'future') {
+                        if (pDate !== futureDate) return false;
+                    } else {
+                        // default: today
+                        if (pDate !== todayStr) return false;
+                    }
 
-                    // 2. Status Logic (all = active dashboard)
+                    // 2. 狀態過濾 (修正新訂單看不到的問題)
                     if (subFilter === 'all') {
+                        // "Focus" 模式：只看未完成的
                         if (isDone) return false;
                     } else {
                         if (o.status !== subFilter) return false;
                     }
 
-                    // 3. Search Logic
+                    // 3. 搜尋邏輯
                     if (searchQuery) {
                         const q = searchQuery.toLowerCase();
                         const uName = o.userInfo?.name || '';
@@ -383,7 +417,7 @@
                     const timeB = b.userInfo?.pickupTime === 'ASAP' ? '00:00' : (b.userInfo?.pickupTime || '23:59');
                     return (a.userInfo?.pickupDate || '').localeCompare(b.userInfo?.pickupDate || '') || timeA.localeCompare(timeB);
                 });
-            }, [orders, orderFilter, subFilter, historyDate, searchQuery]);
+            }, [orders, orderFilter, subFilter, historyDate, futureDate, searchQuery]);
 
             const handleNotificationClick = (status) => {
                 setSubFilter(status);
@@ -391,15 +425,113 @@
                 setOrderFilter('today');
             };
             
-            // Order Filters
-            const [orderFilter, setOrderFilter] = useState('all');
+            // --- 1. 訂單管理介面狀態 (UI States) ---
+            const [orderFilter, setOrderFilter] = useState('today'); // Tab: today, future, history
+            const [subFilter, setSubFilter] = useState('all');       // Status: all, pending, preparing...
+            const [searchQuery, setSearchQuery] = useState(''); 
+            const [isNotifyOpen, setIsNotifyOpen] = useState(false);
 
-            // --- [新增] 訂單管理相關 State ---
-            const [historyDate, setHistoryDate] = useState(getTaiwanDateStr()); // 歷史訂單日期篩選，預設今日
-            const [currentTime, setCurrentTime] = useState(new Date()); // 用於即時倒數與逾時判斷
+            // --- 2. 日期與時間狀態 ---
+            const todayStr = getTaiwanDateStr();
+            const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+            const tomorrowStr = tomorrow.toISOString().split('T')[0];
+            
+            const [historyDate, setHistoryDate] = useState(todayStr); 
+            const [futureDate, setFutureDate] = useState(tomorrowStr);
+            const [currentTime, setCurrentTime] = useState(new Date());
 
+            // --- 3. 通知與顧客資料狀態 ---
+            const [notifications, setNotifications] = useState([
+                { id: 1, type: 'new', title: '系統通知', desc: '新版訂單管理系統上線', time: '剛剛', jumpStatus: 'pending' }
+            ]);
             const [customerNote, setCustomerNote] = useState(''); 
-            const [isFetchingUser, setIsFetchingUser] = useState(false); 
+            const [isFetchingUser, setIsFetchingUser] = useState(false);
+
+            // --- 4. 輔助函式與邏輯 ---
+            // 刪除通知
+            const deleteNotification = (id) => {
+                setNotifications(prev => prev.filter(n => n.id !== id));
+            };
+
+            // 狀態樣式定義 (STATUS_STYLE)
+            const STATUS_STYLE = {
+                'pending':   { bg: 'bg-amber-50', text: 'text-amber-600', label: '待確認', border: 'border-amber-200', icon: 'BellRing' },
+                'confirmed': { bg: 'bg-blue-50', text: 'text-blue-600', label: '已接單', border: 'border-blue-200', icon: 'ChefHat' },
+                'preparing': { bg: 'bg-orange-50', text: 'text-orange-600', label: '製作中', border: 'border-orange-200', icon: 'Flame' },
+                'ready':     { bg: 'bg-emerald-50', text: 'text-emerald-600', label: '待取餐', border: 'border-emerald-200', icon: 'ShoppingBag' },
+                'completed': { bg: 'bg-slate-100', text: 'text-slate-600', label: '已完成', border: 'border-slate-200', icon: 'CheckCircle2' },
+                'cancelled': { bg: 'bg-red-50', text: 'text-red-500', label: '已取消', border: 'border-red-200', icon: 'XCircle' }
+            };
+
+            // 計算各 Tab 的紅點數量 (今日未完成、預約未完成)
+            const getTabCount = (tab) => {
+                return orders.filter(o => {
+                    const pDate = o.userInfo?.pickupDate || '1970-01-01';
+                    const isDone = ['completed', 'cancelled'].includes(o.status);
+                    if (tab === 'today') return pDate === todayStr && !isDone;
+                    if (tab === 'future') return pDate > todayStr && !isDone;
+                    return false;
+                }).length;
+            };
+
+            // 計算當前頁面下，各子狀態的數量
+            const getStatusCount = (status) => {
+                return orders.filter(o => {
+                    const pDate = o.userInfo?.pickupDate || '1970-01-01';
+                    // 日期篩選
+                    if (orderFilter === 'history') { if (pDate !== historyDate) return false; }
+                    else if (orderFilter === 'future') { if (pDate !== futureDate) return false; }
+                    else { if (pDate !== todayStr) return false; }
+
+                    if (status === 'all') return !['completed', 'cancelled'].includes(o.status);
+                    return o.status === status;
+                }).length;
+            };
+
+            // 核心篩選邏輯 (Memoized)
+            const filteredOrders = useMemo(() => {
+                return orders.filter(o => {
+                    const pDate = o.userInfo?.pickupDate || '1970-01-01';
+                    const isDone = ['completed', 'cancelled'].includes(o.status);
+                    
+                    // 1. 日期 Tab 邏輯
+                    if (orderFilter === 'history') {
+                        if (pDate !== historyDate) return false;
+                    } else if (orderFilter === 'future') {
+                        if (pDate !== futureDate) return false;
+                    } else {
+                        if (pDate !== todayStr) return false;
+                    }
+
+                    // 2. 狀態子過濾 (Focus vs Status)
+                    if (subFilter === 'all') {
+                        if (isDone) return false;
+                    } else {
+                        if (o.status !== subFilter) return false;
+                    }
+
+                    // 3. 搜尋邏輯
+                    if (searchQuery) {
+                        const q = searchQuery.toLowerCase();
+                        const uName = o.userInfo?.name || '';
+                        const uPhone = o.userInfo?.phone || '';
+                        const oId = o.orderId || '';
+                        return oId.toLowerCase().includes(q) || uName.toLowerCase().includes(q) || uPhone.includes(q);
+                    }
+                    return true;
+                }).sort((a, b) => {
+                    if (orderFilter === 'history') return new Date(b.createdAt) - new Date(a.createdAt);
+                    const timeA = a.userInfo?.pickupTime === 'ASAP' ? '00:00' : (a.userInfo?.pickupTime || '23:59');
+                    const timeB = b.userInfo?.pickupTime === 'ASAP' ? '00:00' : (b.userInfo?.pickupTime || '23:59');
+                    return (a.userInfo?.pickupDate || '').localeCompare(b.userInfo?.pickupDate || '') || timeA.localeCompare(timeB);
+                });
+            }, [orders, orderFilter, subFilter, historyDate, futureDate, searchQuery, todayStr]);
+
+            const handleNotificationClick = (status) => {
+                setSubFilter(status);
+                setIsNotifyOpen(false);
+                setOrderFilter('today');
+            };
 
             // 定義統一的資料庫路徑產生器 (避免手寫錯誤)
             const getUserDocRef = (uid) => {
@@ -839,119 +971,196 @@
 
                         <div className="max-w-6xl lg:max-w-7xl mx-auto px-6 lg:px-10 py-8 space-y-6 pb-24">
                             
-                            {/* Order Management Tab (New UI) */}
+                            {/* Order Management Tab (Optimized V2) */}
                             {activeTab === 'orders' && (
-                                <div className="animate-fade-in pb-24 h-full flex flex-col">
+                                <div className="animate-fade-in pb-24 h-full flex flex-col relative">
+                                    
                                     {/* 1. Header Area */}
-                                    <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-30 -mx-6 lg:-mx-10 mt-[-2rem] mb-6 shadow-sm">
-                                        <div className="flex items-center gap-6">
-                                            <div className="flex flex-col">
-                                                <h2 className="text-xl font-[1000] text-slate-800 tracking-tight">訂單管理</h2>
-                                                <p className="text-[11px] font-bold text-slate-400 mt-0.5 flex items-center gap-1.5">
-                                                    <Icon name="Calendar" size={12}/> 今日：{getTaiwanDateStr()}
-                                                </p>
-                                            </div>
-                                            <div className="flex gap-1.5 bg-slate-100 p-1 rounded-xl shadow-inner">
-                                                {[{id:'today', t:'今日現場'}, {id:'future', t:'預約單'}, {id:'history', t:'歷史紀錄'}].map(t => (
-                                                    <button key={t.id} onClick={() => { setOrderFilter(t.id); if(t.id==='history') setSubFilter('completed'); else setSubFilter('all'); }} className={`px-4 py-2 rounded-lg text-xs font-black transition-all ${orderFilter===t.id?'bg-white text-slate-800 shadow-sm':'text-slate-500 hover:text-slate-700'}`}>
-                                                        {t.t}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                            {orderFilter === 'history' && (
-                                                <div className="animate-scale-in">
-                                                    <input type="date" className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700 outline-none focus:border-[#5B2274]" value={historyDate} onChange={(e) => setHistoryDate(e.target.value)} />
+                                    <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-6 py-4 sticky top-0 z-30 -mx-6 lg:-mx-10 mt-[-2rem] mb-6 shadow-sm">
+                                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                                            
+                                            {/* Left: Title & Tabs */}
+                                            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full lg:w-auto">
+                                                <div>
+                                                    <h2 className="text-xl font-[900] text-slate-800 tracking-tight">訂單管理</h2>
+                                                    <p className="text-[11px] font-bold text-slate-400 mt-0.5 flex items-center gap-1.5">
+                                                        <Icon name="Calendar" size={12}/> 今日：{todayStr}
+                                                    </p>
                                                 </div>
-                                            )}
-                                        </div>
-
-                                        <div className="flex items-center gap-4">
-                                            <div className="relative group">
-                                                <Icon name="Search" size={16} className="absolute left-3 top-2.5 text-slate-400 group-focus-within:text-[#5B2274] transition-colors"/>
-                                                <input type="text" placeholder="搜尋單號/姓名..." className="bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-4 py-2 text-sm font-bold w-48 lg:w-64 focus:bg-white outline-none transition-all" value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} />
+                                                
+                                                {/* Tab Switcher with Counts [Req 6] */}
+                                                <div className="flex gap-1 bg-slate-100 p-1 rounded-xl shadow-inner overflow-x-auto max-w-full">
+                                                    {[
+                                                        {id:'today', t:'今日現場', count: getTabCount('today')}, 
+                                                        {id:'future', t:'預約單', count: getTabCount('future')}, 
+                                                        {id:'history', t:'歷史紀錄', count: 0}
+                                                    ].map(t => (
+                                                        <button 
+                                                            key={t.id} 
+                                                            onClick={() => { 
+                                                                setOrderFilter(t.id); 
+                                                                // 切換到歷史紀錄時，預設顯示已完成；其他則顯示未完成
+                                                                setSubFilter(t.id === 'history' ? 'completed' : 'all'); 
+                                                            }} 
+                                                            className={`px-3 py-1.5 lg:px-4 lg:py-2 rounded-lg text-xs font-black transition-all flex items-center gap-2 whitespace-nowrap ${orderFilter===t.id?'bg-white text-slate-800 shadow-sm':'text-slate-500 hover:text-slate-700'}`}
+                                                        >
+                                                            {t.t}
+                                                            {t.count > 0 && <span className="bg-red-500 text-white px-1.5 rounded-full text-[9px]">{t.count}</span>}
+                                                        </button>
+                                                    ))}
+                                                </div>
                                             </div>
-                                            <div className="relative">
-                                                <button onClick={() => setIsNotifyOpen(true)} className="w-10 h-10 rounded-full bg-[#5B2274] text-white flex items-center justify-center shadow-lg shadow-purple-100 hover:scale-105 active:scale-95 transition-all">
-                                                    <Icon name="Bell" size={20}/>
-                                                </button>
-                                                {notifications.length > 0 && <div className="absolute top-0 right-0 w-3.5 h-3.5 bg-red-500 border-2 border-white rounded-full animate-pulse pointer-events-none"></div>}
+
+                                            {/* Right: Date Picker & Search & Notify */}
+                                            <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto justify-end">
+                                                
+                                                {/* [Req 2] Date Switchers */}
+                                                {orderFilter === 'history' && (
+                                                    <div className="animate-scale-in flex items-center gap-2 bg-white px-2 py-1 rounded-lg border border-slate-200">
+                                                        <span className="text-[10px] font-bold text-slate-400">查詢日期</span>
+                                                        <input type="date" className="bg-transparent text-xs font-bold text-slate-700 outline-none" value={historyDate} onChange={(e) => setHistoryDate(e.target.value)} />
+                                                    </div>
+                                                )}
+                                                {orderFilter === 'future' && (
+                                                    <div className="animate-scale-in flex items-center gap-2 bg-white px-2 py-1 rounded-lg border border-slate-200">
+                                                        <span className="text-[10px] font-bold text-slate-400">預約日期</span>
+                                                        <input type="date" className="bg-transparent text-xs font-bold text-slate-700 outline-none" value={futureDate} onChange={(e) => setFutureDate(e.target.value)} min={tomorrowStr} />
+                                                    </div>
+                                                )}
+
+                                                <div className="relative group flex-1 lg:flex-none">
+                                                    <Icon name="Search" size={16} className="absolute left-3 top-2.5 text-slate-400 group-focus-within:text-[#5B2274] transition-colors"/>
+                                                    <input type="text" placeholder="搜尋..." className="w-full lg:w-48 bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-4 py-2 text-sm font-bold focus:bg-white outline-none transition-all focus:ring-2 focus:ring-purple-100" value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} />
+                                                </div>
+                                                
+                                                <div className="relative shrink-0">
+                                                    <button onClick={() => setIsNotifyOpen(true)} className="w-10 h-10 rounded-full bg-[#5B2274] text-white flex items-center justify-center shadow-lg shadow-purple-100 hover:scale-105 active:scale-95 transition-all">
+                                                        <Icon name="Bell" size={20}/>
+                                                    </button>
+                                                    {notifications.length > 0 && <div className="absolute top-0 right-0 w-3.5 h-3.5 bg-red-500 border-2 border-white rounded-full animate-pulse pointer-events-none"></div>}
+                                                </div>
                                             </div>
                                         </div>
                                     </header>
 
-                                    {/* 2. Status Bar */}
-                                    <div className="flex justify-center -mx-6 px-6 overflow-x-auto no-scrollbar py-1 mb-6 shrink-0">
-                                        <div className="flex gap-2 min-w-max">
-                                            <button onClick={()=>setSubFilter('all')} className={`px-6 py-2.5 rounded-full text-xs font-black border transition-all flex items-center gap-2 ${subFilter==='all'?'bg-slate-800 text-white border-slate-800 shadow-xl':'bg-white text-slate-500 border-slate-200'}`}>
-                                                未完成 Focus <span className={`px-2 py-0.5 rounded-md text-[10px] ${subFilter==='all'?'bg-white/20 text-white':'bg-slate-800 text-white font-black'}`}>{getCounts('all')}</span>
-                                            </button>
-                                            {['pending','confirmed','preparing','ready','completed','cancelled'].map(st => {
-                                                const style = STATUS_STYLE[st];
-                                                return (
-                                                    <button key={st} onClick={()=>setSubFilter(st)} className={`px-5 py-2.5 rounded-full text-xs font-black border transition-all flex items-center gap-2 ${subFilter===st? style.bg + ' ' + style.text + ' border-current shadow-md' : 'bg-white text-slate-400 border-slate-100'}`}>
-                                                        <Icon name={style.icon} size={14}/> {style.label}
-                                                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-black ${subFilter===st ? 'bg-slate-900/90 text-white shadow-sm' : 'bg-slate-200 text-slate-600'}`}>{getCounts(st)}</span>
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
+                                    {/* 2. Status Filter Bar [Req 5 - Consistent with Menu Mgr] */}
+                                    <div className="flex items-center gap-2 py-1 mb-6 overflow-x-auto no-scrollbar shrink-0">
+                                        <button onClick={()=>setSubFilter('all')} className={`px-5 py-2.5 rounded-xl font-bold text-xs lg:text-sm whitespace-nowrap transition-all shadow-sm border flex items-center gap-2 ${subFilter==='all' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200 hover:text-slate-800'}`}>
+                                            未完成 Focus <span className={`px-1.5 py-0.5 rounded text-[10px] ${subFilter==='all'?'bg-white/20 text-white':'bg-slate-100 text-slate-600'}`}>{getStatusCount('all')}</span>
+                                        </button>
+                                        
+                                        <div className="w-px h-6 bg-slate-200 mx-1 shrink-0"></div>
+
+                                        {['pending','confirmed','preparing','ready','completed','cancelled'].map(st => {
+                                            const style = STATUS_STYLE[st];
+                                            const isActive = subFilter === st;
+                                            return (
+                                                <button key={st} onClick={()=>setSubFilter(st)} className={`px-5 py-2.5 rounded-xl font-bold text-xs lg:text-sm whitespace-nowrap transition-all shadow-sm border flex items-center gap-2 ${isActive ? style.bg + ' ' + style.text + ' ' + style.border : 'bg-white text-slate-400 border-slate-100 hover:text-slate-600'}`}>
+                                                    <Icon name={style.icon} size={16}/> {style.label}
+                                                    {getStatusCount(st) > 0 && <span className={`px-1.5 py-0.5 rounded text-[10px] ${isActive ? 'bg-white/50' : 'bg-slate-100'}`}>{getStatusCount(st)}</span>}
+                                                </button>
+                                            );
+                                        })}
                                     </div>
 
-                                    {/* 3. Order Grid */}
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-24">
+                                    {/* 3. Order Grid [Req 3, 7] */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 pb-24">
                                         {filteredOrders.map(order => {
                                             const statusKey = order.status in STATUS_STYLE ? order.status : 'pending';
                                             const style = STATUS_STYLE[statusKey];
                                             const isUrgent = order.userInfo?.pickupTime === 'ASAP';
-                                            const itemCount = order.items?.length || 0;
+                                            const itemCount = order.items?.reduce((sum, item) => sum + item.qty, 0) || 0;
                                             
                                             return (
-                                                <div key={order.id} className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm hover:shadow-lg transition-all cursor-pointer flex flex-col group animate-fade-in" onClick={()=>setModal({type:'edit_order', data:order})}>
-                                                    <div className="p-7 flex-1 space-y-5">
+                                                <div key={order.id} className="glass-panel p-0 rounded-[1.5rem] overflow-hidden hover:shadow-lg transition-all cursor-pointer flex flex-col group animate-fade-in relative border border-slate-100" onClick={()=>setModal({type:'edit_order', data:order})}>
+                                                    {/* Status Color Strip */}
+                                                    <div className={`h-1.5 w-full ${style.bg.replace('bg-', 'bg-').replace('50', '400')}`}></div>
+                                                    
+                                                    <div className="p-5 flex-1 flex flex-col gap-4">
+                                                        {/* Top Row */}
                                                         <div className="flex justify-between items-start">
-                                                            <div className="flex-1">
-                                                                <div className="flex items-center gap-2 mb-2">
-                                                                    <span className={`text-[10px] font-black px-3 py-1 rounded-full border flex items-center gap-1 ${style.bg} ${style.text} ${style.border}`}><Icon name={style.icon} size={12}/> {style.label}</span>
-                                                                    <span className="text-[10px] font-black text-slate-300 tracking-widest uppercase">ID:{order.orderId?.slice(-4)}</span>
+                                                            <div className="flex flex-col">
+                                                                <div className="flex items-center gap-2 mb-1">
+                                                                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border flex items-center gap-1 ${style.bg} ${style.text} ${style.border}`}>
+                                                                        <Icon name={style.icon} size={10}/> {style.label}
+                                                                    </span>
+                                                                    <span className="text-[10px] font-bold text-slate-300 uppercase">#{order.orderId?.slice(-4)}</span>
                                                                 </div>
-                                                                <div className="flex items-center gap-3">
-                                                                    <div className={`text-4xl font-[1000] tracking-tighter ${isUrgent ? 'text-red-500' : 'text-slate-800'}`}>{order.userInfo?.pickupTime}</div>
-                                                                    {isUrgent && <span className="px-2 py-1 bg-red-500 text-white text-[10px] font-black rounded-lg animate-pulse">URGENT</span>}
-                                                                </div>
-                                                                <div className="text-[11px] font-bold text-slate-400 flex items-center gap-1.5 mt-3 bg-slate-50 w-fit px-3 py-1.5 rounded-xl border border-slate-100">
-                                                                    <Icon name="Calendar" size={11} className="text-[#5B2274]"/> 預約日期：{order.userInfo?.pickupDate}
+                                                                <div className="flex items-baseline gap-2">
+                                                                    <span className={`text-3xl font-[1000] tracking-tighter leading-none ${isUrgent ? 'text-red-500' : 'text-slate-800'}`}>{order.userInfo?.pickupTime}</span>
+                                                                    {isUrgent && <span className="text-[10px] font-black text-red-500 animate-pulse bg-red-50 px-1.5 rounded">急</span>}
                                                                 </div>
                                                             </div>
                                                             <div className="text-right">
-                                                                <div className="text-3xl font-[1000] text-[#5B2274] tracking-tighter">${order.totalPrice}</div>
-                                                                <div className="text-[10px] font-black text-slate-300 uppercase tracking-widest mt-1">{itemCount} ITEMS</div>
+                                                                <div className="text-2xl font-[1000] text-[#5B2274] tracking-tighter">${order.totalPrice}</div>
+                                                                <div className="text-[10px] font-black text-slate-300 uppercase tracking-widest mt-0.5">{itemCount} 品項</div>
                                                             </div>
                                                         </div>
-                                                        <div className="pt-5 border-t border-dashed border-slate-100 flex items-center justify-between">
-                                                            <div className="flex items-center gap-3">
-                                                                <div className="w-10 h-10 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400 font-black border border-slate-100">{order.userInfo?.name?.[0]}</div>
-                                                                <div className="min-w-0">
-                                                                    <div className="text-sm font-black text-slate-700 truncate">{order.userInfo?.name}</div>
-                                                                    <div className="text-xs text-slate-400 font-bold tracking-tight">{order.userInfo?.phone}</div>
-                                                                </div>
-                                                            </div>
-                                                            <div className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 group-hover:bg-[#5B2274] group-hover:text-white transition-all"><Icon name="ChevronRight" size={20}/></div>
-                                                        </div>
-                                                    </div>
 
-                                                    {!['completed', 'cancelled'].includes(order.status) && (
-                                                        <div className="grid grid-cols-2 divide-x divide-slate-100 border-t border-slate-100 bg-slate-50/30">
-                                                            {order.status === 'pending' && (<><button onClick={(e)=>{e.stopPropagation(); if(confirm('拒單？')) handleUpdateOrderStatus(order.id, 'cancelled');}} className="py-5 text-slate-400 font-black text-xs hover:bg-red-50 hover:text-red-500 transition-all uppercase tracking-widest">緊急拒單</button><button onClick={(e)=>{e.stopPropagation(); handleUpdateOrderStatus(order.id, 'confirmed');}} className="py-5 bg-blue-600 text-white font-[1000] text-xs hover:bg-blue-700 transition-all shadow-inner tracking-widest">確認接單 (ACCEPT)</button></>)}
-                                                            {order.status === 'confirmed' && <button onClick={(e)=>{e.stopPropagation(); handleUpdateOrderStatus(order.id, 'preparing');}} className="col-span-2 py-5 bg-orange-500 hover:bg-orange-600 transition-colors text-white font-[1000] text-xs flex items-center justify-center gap-2"><Icon name="Flame" size={14}/> 開始製作</button>}
-                                                            {order.status === 'preparing' && <button onClick={(e)=>{e.stopPropagation(); handleUpdateOrderStatus(order.id, 'ready');}} className="col-span-2 py-5 bg-emerald-500 hover:bg-emerald-600 transition-colors text-white font-[1000] text-xs flex items-center justify-center gap-2"><Icon name="Check" size={14}/> 製作完成</button>}
-                                                            {order.status === 'ready' && <button onClick={(e)=>{e.stopPropagation(); handleUpdateOrderStatus(order.id, 'completed');}} className="col-span-2 py-5 bg-[#5B2274] hover:bg-purple-800 transition-colors text-white font-[1000] text-xs flex items-center justify-center gap-2"><Icon name="ShoppingBag" size={14}/> 完成取餐結案</button>}
+                                                        {/* User Info */}
+                                                        <div className="flex items-center gap-3 bg-slate-50/50 p-2.5 rounded-xl border border-slate-100">
+                                                            <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center text-slate-400 font-black border border-slate-100 shadow-sm text-lg">
+                                                                {order.userInfo?.name?.[0]}
+                                                            </div>
+                                                            <div className="min-w-0">
+                                                                <div className="text-sm font-black text-slate-700 truncate">{order.userInfo?.name}</div>
+                                                                <div className="text-xs text-slate-400 font-bold tracking-tight">{order.userInfo?.phone}</div>
+                                                            </div>
                                                         </div>
-                                                    )}
+
+                                                        {/* Quick Actions (Only for active orders) */}
+                                                        {!['completed', 'cancelled'].includes(order.status) && (
+                                                            <div className="grid grid-cols-2 gap-2 mt-auto pt-2">
+                                                                {order.status === 'pending' && (
+                                                                    <>
+                                                                        <button onClick={(e)=>{e.stopPropagation(); if(confirm('拒絕此訂單？')) handleUpdateOrderStatus(order.id, 'cancelled');}} className="py-2.5 rounded-xl text-slate-400 font-bold text-xs hover:bg-red-50 hover:text-red-500 transition-colors border border-transparent hover:border-red-100">拒絕</button>
+                                                                        <button onClick={(e)=>{e.stopPropagation(); handleUpdateOrderStatus(order.id, 'confirmed');}} className="py-2.5 rounded-xl bg-blue-500 text-white font-bold text-xs hover:bg-blue-600 transition-colors shadow-md shadow-blue-200">接單</button>
+                                                                    </>
+                                                                )}
+                                                                {order.status === 'confirmed' && <button onClick={(e)=>{e.stopPropagation(); handleUpdateOrderStatus(order.id, 'preparing');}} className="col-span-2 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs shadow-md shadow-orange-200 flex items-center justify-center gap-2"><Icon name="Flame" size={14}/> 開始製作</button>}
+                                                                {order.status === 'preparing' && <button onClick={(e)=>{e.stopPropagation(); handleUpdateOrderStatus(order.id, 'ready');}} className="col-span-2 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs shadow-md shadow-emerald-200 flex items-center justify-center gap-2"><Icon name="Check" size={14}/> 製作完成</button>}
+                                                                {order.status === 'ready' && <button onClick={(e)=>{e.stopPropagation(); handleUpdateOrderStatus(order.id, 'completed');}} className="col-span-2 py-3 rounded-xl bg-[#5B2274] hover:bg-purple-800 text-white font-bold text-xs shadow-md shadow-purple-200 flex items-center justify-center gap-2"><Icon name="ShoppingBag" size={14}/> 完成取餐</button>}
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             );
                                         })}
-                                        {filteredOrders.length === 0 && <div className="col-span-full text-center py-20 text-slate-300 font-bold text-sm">暫無符合條件的訂單</div>}
+                                        {filteredOrders.length === 0 && (
+                                            <div className="col-span-full py-20 flex flex-col items-center justify-center text-slate-300">
+                                                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4"><Icon name="Inbox" size={32}/></div>
+                                                <p className="font-bold text-sm">此條件下沒有訂單</p>
+                                            </div>
+                                        )}
                                     </div>
+
+                                    {/* Notification Drawer (With Delete [Req 1]) */}
+                                    {isNotifyOpen && (
+                                        <div className="fixed inset-0 z-[60] flex justify-end">
+                                            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setIsNotifyOpen(false)}></div>
+                                            <div className="bg-white w-full max-w-sm h-full shadow-2xl relative z-10 flex flex-col animate-slide-in">
+                                                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-[#5B2274] text-white">
+                                                    <div className="flex items-center gap-3"><Icon name="Bell" size={20}/><h3 className="font-[900] text-lg">系統通知</h3></div>
+                                                    <button onClick={() => setIsNotifyOpen(false)} className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center hover:bg-white/30 transition-colors"><Icon name="X" size={18}/></button>
+                                                </div>
+                                                <div className="flex-1 overflow-y-auto p-4 space-y-3 no-scrollbar bg-slate-50/50">
+                                                    {notifications.map(n => (
+                                                        <div key={n.id} className="p-4 rounded-2xl bg-white border border-slate-100 shadow-sm hover:border-[#5B2274] transition-all cursor-pointer relative group pr-8">
+                                                            <div onClick={() => handleNotificationClick(n.jumpStatus)}>
+                                                                <div className="flex justify-between items-start mb-1">
+                                                                    <span className="text-[10px] font-black px-2 py-0.5 rounded bg-blue-50 text-blue-600">{n.title}</span>
+                                                                    <span className="text-[10px] font-bold text-slate-400">{n.time}</span>
+                                                                </div>
+                                                                <p className="text-sm font-bold text-slate-700 leading-snug">{n.desc}</p>
+                                                            </div>
+                                                            <button onClick={(e) => { e.stopPropagation(); deleteNotification(n.id); }} className="absolute top-3 right-3 text-slate-300 hover:text-red-500 p-1"><Icon name="X" size={14}/></button>
+                                                        </div>
+                                                    ))}
+                                                    {notifications.length === 0 && <div className="text-center text-slate-400 text-xs font-bold py-10">目前無新通知</div>}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                             
@@ -1734,3 +1943,4 @@
     </script>
 </body>
 </html>
+
