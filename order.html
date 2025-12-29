@@ -530,6 +530,10 @@
             const [products, setProducts] = useState([]);
             const [sets, setSets] = useState([]);
             const [addons, setAddons] = useState([]);
+			const [organizations, setOrganizations] = useState([]); // [New] 特約機構列表
+			const [showRegisterModal, setShowRegisterModal] = useState(false); // [New] 強制註冊視窗
+            const [useDefaultInfo, setUseDefaultInfo] = useState(true);        // [New] 結帳時是否帶入會員資料
+            const [userProfile, setUserProfile] = useState(null);   // [New] 使用者完整資料 (含特約身分/點數)
             const [materials, setMaterials] = useState([]);
             const [coupons, setCoupons] = useState([]); 
             const [currentView, setCurrentView] = useState('menu'); 
@@ -680,6 +684,7 @@
                 sub('products', setProducts);
                 sub('sets', setSets);
                 sub('addons', setAddons);
+				sub('organizations', setOrganizations);
                 sub('materials', setMaterials);
                 sub('coupons', setCoupons);
 
@@ -689,6 +694,7 @@
             // ==========================================
             //  Order History Query (Security Rules Compliant)
             // ==========================================
+            // [Updated] 使用者資料監聽 (含強制註冊檢查)
             useEffect(() => {
                 const { db, appId, doc, onSnapshot } = window;
                 if (!db || !currentUser) return;
@@ -698,13 +704,37 @@
                 const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
                     if (docSnap.exists()) {
                         const userData = docSnap.data();
+                        
+                        // 1. 同步優惠券
+                        if (userData.myCoupons && Array.isArray(userData.myCoupons)) {
+                            setMyCoupons(userData.myCoupons);
+                        }
+
+                        // 2. 檢查是否已完成註冊 (依後台標準欄位 name, phone)
+                        const dbName = userData.name || userData.savedName;
+                        const dbPhone = userData.phone || userData.savedPhone;
+                        
+                        // 若無資料則強制顯示註冊視窗
+                        if (!dbName || !dbPhone) {
+                            setShowRegisterModal(true);
+                        } else {
+                            setShowRegisterModal(false);
+                        }
+
+                        // 3. 儲存完整資料 & 更新本地狀態
+                        setUserProfile({ ...userData, name: dbName, phone: dbPhone });
+
                         setUserInfo(prev => ({
                             ...prev,
-                            name: userData.savedName || '',    // 載入上次手填的姓名
-                            phone: userData.savedPhone || '',
+                            name: dbName || '',
+                            phone: dbPhone || '',
                             contactMethod: userData.contactMethod || 'line',
                             remember: true 
                         }));
+                    } else {
+                        // 文件不存在 (新用戶)，強制顯示註冊
+                        setShowRegisterModal(true);
+                        setUserProfile(null);
                     }
                 });
                 return () => unsubscribe();
@@ -943,14 +973,28 @@
                 return categories.map(cat => ({ ...cat, items: products.filter(p => { const matchSearch = !term || p.name.toLowerCase().includes(term); return p.categoryId === cat.id && !p.isHidden && matchSearch; }).sort((a,b) => a.sortOrder - b.sortOrder) })).filter(cat => cat.items.length > 0);
             }, [categories, products, searchTerm]);
 
-            const addCoupon = () => {
+            const addCoupon = async () => {
                 const coupon = coupons.find(c => c.code === couponInput.trim().toUpperCase());
                 if (coupon) {
                     if (myCoupons.some(c => c.code === coupon.code)) { showAlert("您已領取過此優惠券"); return; }
                     if (new Date(coupon.expiry) < new Date()) { showAlert("此優惠券已過期"); return; }
-                    setMyCoupons([...myCoupons, coupon]);
+                    
+                    const newCoupons = [...myCoupons, coupon];
+                    setMyCoupons(newCoupons);
                     setCouponInput('');
                     showAlert("優惠券領取成功！");
+
+                    // [New] 同步寫入 Firestore，讓後台能看到
+                    if (currentUser) {
+                        try {
+                            const { db, appId, doc, setDoc } = window;
+                            const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', currentUser.uid);
+                            // 使用 merge: true 避免覆蓋掉原本的 name/phone 或特約身分
+                            await setDoc(userRef, { myCoupons: newCoupons }, { merge: true });
+                        } catch (e) {
+                            console.error("無法儲存優惠券至伺服器:", e);
+                        }
+                    }
                 } else { showAlert("無效的優惠代碼"); }
             };
 
@@ -1091,6 +1135,34 @@
                 setCart([...cart, ...newCartItems]);
                 showAlert('已將訂單內容加入購物車');
                 setCurrentView('menu');
+            };
+			
+			// [New] 處理初次註冊
+            const handleRegister = async (e) => {
+                e.preventDefault();
+                const formData = new FormData(e.target);
+                const name = formData.get('reg_name').trim();
+                const phone = formData.get('reg_phone').trim();
+                
+                if (!name || !phone) { showAlert("請填寫完整姓名與電話"); return; }
+
+                try {
+                    const { db, appId, doc, setDoc } = window;
+                    // 寫入後台標準欄位 name, phone，並設定角色
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', currentUser.uid), {
+                        name: name,
+                        phone: phone,
+                        lineDisplayName: lineDisplayName || '',
+                        role: 'member', 
+                        updatedAt: new Date().toISOString()
+                    }, { merge: true });
+                    
+                    showAlert("會員註冊成功！");
+                    // 註冊成功後，上方的 useEffect 會監聽到資料變更，自動關閉視窗
+                } catch (err) {
+                    console.error(err);
+                    showAlert("註冊失敗，請檢查網路連線");
+                }
             };
 
             const handlePreSubmit = () => {
@@ -1368,22 +1440,41 @@
             };
             
             const confirmSubmitOrder = async () => {
-                let discountAmount = 0;
-                if (useLoyaltyCard) discountAmount = 50;
-                else if (selectedCoupon) { if (cartTotal >= selectedCoupon.minSpend) discountAmount = selectedCoupon.discount; }
-                const total = Math.max(0, cartTotal - discountAmount);
+                // 1. 決定訂購人資料 (依據切換開關)
+                // 若選「帶入會員」，則強制使用 userProfile 的資料
+                // 若選「自行輸入」，則使用 userInfo (表單狀態)
+                const finalUserInfo = {
+                    ...userInfo,
+                    name: useDefaultInfo ? (userProfile?.name || userInfo.name) : userInfo.name,
+                    phone: useDefaultInfo ? (userProfile?.phone || userInfo.phone) : userInfo.phone,
+                    pickupDate, 
+                    pickupTime: isASAP ? "ASAP" : `${pickupHour.toString().padStart(2, '0')}:${pickupMinute.toString().padStart(2, '0')}`
+                };
 
-                const finalTime = isASAP ? "ASAP" : `${pickupHour.toString().padStart(2, '0')}:${pickupMinute.toString().padStart(2, '0')}`;
+                // 使用 orderCalc 的計算結果
+                const total = orderCalc.final;
+                const discountAmount = orderCalc.discount;
+                const subtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
+
+                // 2. 判斷折扣來源標記
+                let appliedArr = [];
+                if (selectedCoupon) appliedArr.push(`coupon:${selectedCoupon.code}`);
+                else if (userProfile?.role === 'affiliate' && userProfile?.orgId) appliedArr.push(`affiliate:${userProfile.orgId}`);
+                
+                if (useLoyaltyCard && settings.pointsEnabled) appliedArr.push('loyalty');
+                
+                const discountTag = appliedArr.length > 0 ? appliedArr.join(',') : null;
+
                 const randomId = `OD${Date.now().toString().slice(-6)}`;
                 
                 const newOrder = { 
                     orderId: randomId, 
                     items: cart, 
                     totalPrice: total, 
-                    originalPrice: cartTotal,
-                    discountApplied: useLoyaltyCard ? 'loyalty' : (selectedCoupon ? selectedCoupon.code : null), 
+                    originalPrice: subtotal,
+                    discountApplied: discountTag, 
                     discountAmount, 
-                    userInfo: { ...userInfo, pickupDate, pickupTime: finalTime },
+                    userInfo: finalUserInfo, // [Use Final Info]
                     customerUid: currentUser ? currentUser.uid : 'guest', 
                     createdAt: new Date().toISOString(), 
                     status: 'pending',
@@ -1393,14 +1484,13 @@
                 try {
                     const { db, appId, addDoc, setDoc, doc, collection } = window;
 
-                    if (userInfo.remember && currentUser) {
+                    // 這裡不再需要寫入 users (因為強制註冊已經寫過了)，除非要更新偏好
+                    // 但我們保留更新偏好設定 (如聯絡方式)
+                    if (currentUser) {
                         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', currentUser.uid), {
-                            savedName: userInfo.name,
-                            savedPhone: userInfo.phone,
-                            contactMethod: userInfo.contactMethod,
-                            lineDisplayName: lineDisplayName,
+                            contactMethod: finalUserInfo.contactMethod,
                             updatedAt: new Date().toISOString()
-                        });
+                        }, { merge: true });
                     }
                     localStorage.removeItem('cb_user_info');
 
@@ -1422,7 +1512,7 @@
                     setSelectedCoupon(null); 
                     setShowSubmitConfirm(false);
                     
-                    // 強制切換到歷史紀錄頁面，並開啟該訂單
+                    // 強制切換到歷史紀錄頁面
                     setCurrentView('history');
                     setTimeout(() => {
                         setSelectedOrderDetail({ id: docRef.id });
@@ -1460,7 +1550,72 @@
 
             const cartTotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
             const cartCount = cart.reduce((sum, item) => sum + item.qty, 0);
-            const finalTotal = Math.max(0, cartTotal - (useLoyaltyCard ? 50 : (selectedCoupon ? selectedCoupon.discount : 0)));
+
+            // [Updated] 訂單優惠計算核心 (集點/優惠券/特約)
+            const orderCalc = useMemo(() => {
+                const subtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
+                let discount = 0;
+                let discountName = '';
+
+                // 1. 基礎優惠 (Coupon vs Affiliate 擇一)
+                // 優先權：若有選優惠券則使用優惠券，否則檢查特約身分
+                if (selectedCoupon) {
+                    const { type, value, minSpend, maxDiscount, name } = selectedCoupon;
+                    // 檢查低消
+                    if (!minSpend || subtotal >= minSpend) {
+                        let d = 0;
+                        if (type === 'percent') { // 百分比折扣
+                            d = Math.round(subtotal * (value / 100));
+                            if (maxDiscount > 0) d = Math.min(d, maxDiscount); // 上限檢查
+                        } else if (type === 'step') { // 階梯式折扣
+                            if (minSpend > 0) {
+                                const steps = Math.floor(subtotal / minSpend);
+                                d = steps * value;
+                                if (maxDiscount > 0) d = Math.min(d, maxDiscount);
+                            }
+                        } else {
+                            // fixed: 固定金額 (相容舊版)
+                            d = value;
+                        }
+                        discount += d;
+                        discountName = name;
+                    }
+                } 
+                else if (userProfile?.role === 'affiliate' && userProfile?.orgId) {
+                    // 特約機構優惠檢查
+                    const org = organizations.find(o => o.id === userProfile.orgId);
+                    const now = new Date();
+                    const validUser = !userProfile.affiliateExpiry || new Date(userProfile.affiliateExpiry) >= now;
+                    const validOrg = org && (!org.expiryDate || new Date(org.expiryDate) >= now);
+
+                    if (validUser && validOrg) {
+                        let d = 0;
+                        if (org.schemeType === 'percent') {
+                            d = Math.round(subtotal * (org.schemeValue / 100));
+                        } else {
+                            d = org.schemeValue;
+                        }
+                        discount += d;
+                        discountName = `${org.name}特約`;
+                    }
+                }
+
+                // 2. 集點折抵 (可疊加)
+                if (useLoyaltyCard && settings.pointsEnabled) {
+                    // 讀取後台設定值，若無則預設 50
+                    const reward = Number(settings.pointRewardValue) || 50;
+                    discount += reward;
+                    discountName = discountName ? `${discountName} + 集點` : '集點回饋';
+                }
+
+                // 防止負數
+                if (discount > subtotal) discount = subtotal;
+
+                return { final: subtotal - discount, discount, name: discountName };
+            }, [cart, useLoyaltyCard, selectedCoupon, userProfile, organizations, settings]);
+
+            // [Important] 綁定計算結果至舊變數，保持相容性
+            const finalTotal = orderCalc.final;
 
             const getCartItemQty = (prodId) => cart.filter(item => item.productId === prodId).reduce((sum, item) => sum + item.qty, 0);
             
@@ -1718,21 +1873,70 @@
                         )}
                         {currentView === 'coupons' && (
                             <div className="flex-1 overflow-y-auto p-5 pb-36">
-                                <h2 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2"><Icon name="ticket" className="text-slate-600" /> 優惠券</h2>
-                                <div className="flex gap-2 mb-6">
-                                    <input type="text" placeholder="輸入優惠代碼" className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-[#5B2274]" value={couponInput} onChange={e => setCouponInput(e.target.value)} />
-                                    <button onClick={addCoupon} className="bg-slate-800 text-white px-4 rounded-xl font-bold text-sm">新增</button>
-                                </div>
-                                {myCoupons.length === 0 ? <div className="text-center text-slate-400 mt-10">目前沒有優惠券</div> : (
-                                    <div className="space-y-4">
-                                        {myCoupons.map((coupon, idx) => (
-                                            <div key={idx} className="coupon-ticket bg-white p-4 shadow-sm filter drop-shadow-sm flex items-center gap-4 relative overflow-hidden">
-                                                <div className="w-16 h-16 bg-purple-50 rounded-lg flex items-center justify-center text-[#5B2274] font-black text-xl shrink-0">${coupon.discount}</div>
-                                                <div className="flex-1 min-w-0"><h3 className="font-black text-slate-800">{coupon.title}</h3><p className="text-xs text-slate-500 mt-1">{coupon.desc}</p><p className="text-[10px] text-slate-400 mt-2">有效期至 {coupon.expiry}</p></div>
-                                            </div>
-                                        ))}
+                                <h2 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2"><Icon name="ticket" className="text-slate-600" /> 優惠券專區</h2>
+                                
+                                {/* 1. 手動領取區塊 */}
+                                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6">
+                                    <p className="text-sm font-bold text-slate-500 mb-2">手動領取</p>
+                                    <div className="flex gap-2">
+                                        <input type="text" placeholder="輸入優惠代碼" className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-[#5B2274]" value={couponInput} onChange={e => setCouponInput(e.target.value)} />
+                                        <button onClick={addCoupon} className="bg-slate-800 text-white px-4 rounded-xl font-bold text-sm">新增</button>
                                     </div>
-                                )}
+                                </div>
+
+                                {/* 2. [New] 可領取的優惠券列表 (來自後台設定) */}
+                                <div className="mb-8">
+                                    <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-3">限時領取</h3>
+                                    {coupons.filter(c => !c.isHidden && (!c.expiry || new Date(c.expiry) > new Date())).length === 0 ? (
+                                        <div className="text-center text-slate-400 text-xs py-4 bg-slate-50 rounded-xl border border-dashed border-slate-200">目前沒有可領取的活動優惠券</div>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {coupons.filter(c => !c.isHidden && (!c.expiry || new Date(c.expiry) > new Date())).map(coupon => {
+                                                const isClaimed = myCoupons.some(mc => mc.code === coupon.code);
+                                                return (
+                                                    <div key={coupon.id} className={`p-4 rounded-2xl border flex items-center gap-4 relative overflow-hidden transition-all ${isClaimed ? 'bg-slate-50 border-slate-200 opacity-60' : 'bg-white border-purple-100 shadow-sm'}`}>
+                                                        <div className={`w-14 h-14 rounded-full flex items-center justify-center font-black text-lg shrink-0 ${isClaimed ? 'bg-slate-200 text-slate-400' : 'bg-purple-50 text-[#5B2274]'}`}>
+                                                            {coupon.type === 'percent' ? `${coupon.value}%` : `$${coupon.value}`}
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <h4 className="font-bold text-slate-800">{coupon.title}</h4>
+                                                            <p className="text-xs text-slate-500 mt-0.5">{coupon.desc || '全品項適用'}</p>
+                                                            <p className="text-[10px] text-slate-400 mt-1">代碼: {coupon.code}</p>
+                                                        </div>
+                                                        <button 
+                                                            disabled={isClaimed}
+                                                            onClick={() => {
+                                                                if (isClaimed) return;
+                                                                setMyCoupons([...myCoupons, coupon]);
+                                                                showAlert("領取成功！");
+                                                            }}
+                                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold ${isClaimed ? 'text-slate-400 bg-slate-100' : 'bg-[#5B2274] text-white active:scale-95'}`}
+                                                        >
+                                                            {isClaimed ? '已領取' : '領取'}
+                                                        </button>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* 3. 我的票夾 (顯示已領取的券) */}
+                                <div>
+                                    <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-3">我的票夾</h3>
+                                    {myCoupons.length === 0 ? <div className="text-center text-slate-400 mt-4 text-sm">尚無優惠券</div> : (
+                                        <div className="space-y-4">
+                                            {myCoupons.map((coupon, idx) => (
+                                                <div key={idx} className="coupon-ticket bg-white p-4 shadow-sm filter drop-shadow-sm flex items-center gap-4 relative overflow-hidden">
+                                                    <div className="w-16 h-16 bg-purple-50 rounded-lg flex items-center justify-center text-[#5B2274] font-black text-xl shrink-0">
+                                                        {coupon.type === 'percent' ? `${coupon.value}%` : `$${coupon.value}`}
+                                                    </div>
+                                                    <div className="flex-1 min-w-0"><h3 className="font-black text-slate-800">{coupon.title}</h3><p className="text-xs text-slate-500 mt-1">{coupon.desc}</p><p className="text-[10px] text-slate-400 mt-2">有效期至 {coupon.expiry}</p></div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         )}
                         {currentView === 'history' && (
@@ -1781,19 +1985,98 @@
                                             </section>
                                         )}
                                     </div>
+
                                 )}
+                            </div>
+                        )}
+
+                        {currentView === 'account' && (
+                            <div className="flex-1 overflow-y-auto p-5 pb-36 no-scrollbar">
+                                <h2 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2"><Icon name="user" className="text-slate-600" /> 我的帳戶</h2>
+                                
+                                {/* 1. 用戶基本資料 */}
+                                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 mb-6 text-center">
+                                    <div className="w-20 h-20 bg-slate-100 rounded-full mx-auto mb-4 flex items-center justify-center text-slate-400">
+                                        <Icon name="user" size={40} />
+                                    </div>
+                                    <h3 className="text-lg font-black text-slate-800 mb-1">{lineDisplayName || userInfo.name || '親愛的顧客'}</h3>
+                                    <p className="text-sm text-slate-500 font-bold mb-4">{userInfo.phone || '尚未綁定電話'}</p>
+                                    {!currentUser && <button onClick={() => window.liff?.login()} className="text-xs bg-[#06C755] text-white px-4 py-2 rounded-full font-bold shadow-sm active:scale-95">登入 LINE 帳號</button>}
+                                </div>
+
+                                {/* 2. 特約會員卡 (動態顯示) */}
+                                <div className="mb-6">
+                                    <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-3">特約會員卡</h3>
+                                    {userProfile?.role === 'affiliate' && userProfile?.orgId ? (
+                                        (() => {
+                                            const org = organizations.find(o => o.id === userProfile.orgId);
+                                            const isExpired = userProfile.affiliateExpiry && new Date(userProfile.affiliateExpiry) < new Date();
+                                            return (
+                                                <div className={`relative overflow-hidden rounded-2xl p-6 shadow-lg text-white ${isExpired ? 'bg-slate-500' : 'bg-gradient-to-br from-[#5B2274] to-[#8B3D9D]'}`}>
+                                                    <div className="absolute top-0 right-0 -mr-4 -mt-4 w-24 h-24 bg-white/10 rounded-full blur-xl"></div>
+                                                    
+                                                    <div className="flex justify-between items-start mb-8 relative z-10">
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center backdrop-blur-md">
+                                                                <Icon name="crown" size={16} className="text-white" />
+                                                            </div>
+                                                            <span className="font-bold tracking-wider text-sm opacity-90">特約貴賓</span>
+                                                        </div>
+                                                        {isExpired && <span className="bg-red-500 text-white text-[10px] px-2 py-1 rounded font-bold">已過期</span>}
+                                                    </div>
+
+                                                    <div className="relative z-10">
+                                                        <h4 className="text-2xl font-black mb-1">{org ? org.name : '載入中...'}</h4>
+                                                        <p className="text-xs text-white/60 font-bold mb-6">Affiliate Member</p>
+                                                        
+                                                        <div className="flex items-center gap-1.5 opacity-80">
+                                                            <Icon name="clock" size={12} />
+                                                            <span className="text-xs font-bold tracking-wide">
+                                                                有效期限：{userProfile.affiliateExpiry || '永久有效'}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()
+                                    ) : (
+                                        <div className="bg-white p-6 rounded-2xl border border-dashed border-slate-200 text-center">
+                                            <div className="w-12 h-12 bg-slate-50 text-slate-300 rounded-full mx-auto mb-3 flex items-center justify-center"><Icon name="credit-card" size={24} /></div>
+                                            <p className="text-sm font-bold text-slate-400">您目前尚未綁定特約機構</p>
+                                            <p className="text-xs text-slate-300 mt-1">請洽詢櫃台或特定合作單位</p>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         )}
                     </div>
 
-                    {/* 確保載入完成後才顯示底部選單 */}
+                    {/* Bottom Navigation */}
                     {(!isInitLoading && !selectedOrderDetail) && (
-                        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around items-center z-50 shadow-[0_-8px_20px_rgba(0,0,0,0.05)] pt-2 pb-[env(safe-area-inset-bottom)] animate-slide-up">
-                            <button onClick={() => setCurrentView('menu')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'menu' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="utensils" size={20} /><span className="text-[10px] font-bold">菜單</span></button>
-                            <button onClick={() => setCurrentView('favorites')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'favorites' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="heart" size={20} className={currentView === 'favorites' ? 'fill-current' : ''} /><span className="text-[10px] font-bold">收藏</span></button>
-                            <button onClick={() => setCurrentView('coupons')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'coupons' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="ticket" size={20} /><span className="text-[10px] font-bold">優惠券</span></button>
-                            <button onClick={() => setCurrentView('history')} className={`flex flex-col items-center gap-1 w-16 transition-colors ${currentView === 'history' ? 'text-[#5B2274]' : 'text-slate-400'}`}><Icon name="history" size={20} /><span className="text-[10px] font-bold">紀錄</span></button>
+                        <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 py-2 pb-safe z-50">
+                        <div className="flex justify-around items-center">
+                            <button onClick={() => setCurrentView('menu')} className={`flex flex-col items-center gap-0.5 w-16 transition-colors ${currentView === 'menu' ? 'text-[#5B2274]' : 'text-slate-400'}`}>
+                                <Icon name="utensils" size={20} className={currentView === 'menu' ? 'fill-current' : ''} />
+                                <span className="text-[10px] font-bold">點餐</span>
+                            </button>
+                            <button onClick={() => setCurrentView('favorites')} className={`flex flex-col items-center gap-0.5 w-16 transition-colors ${currentView === 'favorites' ? 'text-[#5B2274]' : 'text-slate-400'}`}>
+                                <Icon name="heart" size={20} className={currentView === 'favorites' ? 'fill-current' : ''} />
+                                <span className="text-[10px] font-bold">收藏</span>
+                            </button>
+                            <button onClick={() => setCurrentView('coupons')} className={`flex flex-col items-center gap-0.5 w-16 transition-colors ${currentView === 'coupons' ? 'text-[#5B2274]' : 'text-slate-400'}`}>
+                                <Icon name="ticket" size={20} />
+                                <span className="text-[10px] font-bold">優惠券</span>
+                            </button>
+                            <button onClick={() => setCurrentView('history')} className={`flex flex-col items-center gap-0.5 w-16 transition-colors ${currentView === 'history' ? 'text-[#5B2274]' : 'text-slate-400'}`}>
+                                <Icon name="history" size={20} />
+                                <span className="text-[10px] font-bold">紀錄</span>
+                            </button>
+                            <button onClick={() => setCurrentView('account')} className={`flex flex-col items-center gap-0.5 w-16 transition-colors ${currentView === 'account' ? 'text-[#5B2274]' : 'text-slate-400'}`}>
+                                <Icon name="user" size={20} />
+                                <span className="text-[10px] font-bold">帳戶</span>
+                            </button>
                         </div>
+                    </div>
                     )}
 
                     {cart.length > 0 && currentView === 'menu' && (
@@ -2187,13 +2470,83 @@
 
                                     <div className="space-y-4 pt-2">
                                         <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest">訂購人資訊</h4>
-                                        <div className="grid grid-cols-2 gap-3"><input type="text" placeholder="您的姓名" className="bg-slate-50 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-[#5B2274]" value={userInfo.name} onChange={e => setUserInfo({...userInfo, name: e.target.value})} /><input type="tel" placeholder="聯絡電話" className="bg-slate-50 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-[#5B2274]" value={userInfo.phone} onChange={e => setUserInfo({...userInfo, phone: e.target.value})} /></div>
-                                        <div className="space-y-2"><p className="text-xs font-bold text-slate-500">優先聯絡方式</p><div className="flex bg-slate-50 rounded-xl p-1 w-full"><button onClick={() => setUserInfo({...userInfo, contactMethod: 'line'})} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${userInfo.contactMethod === 'line' ? 'bg-[#5B2274] text-white shadow-sm' : 'text-slate-400'}`}>LINE</button><button onClick={() => setUserInfo({...userInfo, contactMethod: 'phone'})} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${userInfo.contactMethod === 'phone' ? 'bg-[#5B2274] text-white shadow-sm' : 'text-slate-400'}`}>電話</button></div></div><label className="flex items-center justify-between cursor-pointer bg-slate-50 p-3 rounded-xl border border-slate-100"><span className="text-xs font-bold text-slate-500">記住我的資訊 (下次自動帶入)</span><div className="switch"><input type="checkbox" checked={userInfo.remember} onChange={e => setUserInfo({...userInfo, remember: e.target.checked})} /><span className="slider"></span></div></label>
+                                        
+                                        {/* [New] 資料來源切換開關 */}
+                                        <div className="bg-slate-100 p-1 rounded-xl flex font-bold text-sm mb-2">
+                                            <button 
+                                                onClick={() => setUseDefaultInfo(true)} 
+                                                className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-2 transition-all ${useDefaultInfo ? 'bg-white text-[#5B2274] shadow-sm' : 'text-slate-400'}`}
+                                            >
+                                                <Icon name="user" size={14} /> 帶入會員
+                                            </button>
+                                            <button 
+                                                onClick={() => setUseDefaultInfo(false)} 
+                                                className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-2 transition-all ${!useDefaultInfo ? 'bg-white text-[#5B2274] shadow-sm' : 'text-slate-400'}`}
+                                            >
+                                                <Icon name="pencil" size={14} /> 自行輸入
+                                            </button>
+                                        </div>
+
+                                        {useDefaultInfo ? (
+                                            // 模式 A: 顯示會員資料 (唯讀)
+                                            <div className="bg-purple-50 border border-purple-100 rounded-xl p-4 flex flex-col gap-2 relative overflow-hidden">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-[#5B2274] shadow-sm">
+                                                        <Icon name="smile" size={20} />
+                                                    </div>
+                                                    <div>
+                                                        <p className="font-black text-slate-800">{userProfile?.name || '會員'}</p>
+                                                        <p className="text-xs font-bold text-slate-500">{userProfile?.phone}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="absolute top-0 right-0 px-2 py-1 bg-[#5B2274] text-white text-[10px] font-bold rounded-bl-lg">
+                                                    預設
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            // 模式 B: 自行輸入
+                                            <div className="grid grid-cols-2 gap-3 animate-fade-in">
+                                                <input type="text" placeholder="您的姓名" className="bg-slate-50 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-[#5B2274]" value={userInfo.name} onChange={e => setUserInfo({...userInfo, name: e.target.value})} />
+                                                <input type="tel" placeholder="聯絡電話" className="bg-slate-50 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-[#5B2274]" value={userInfo.phone} onChange={e => setUserInfo({...userInfo, phone: e.target.value})} />
+                                            </div>
+                                        )}
+                                        
+                                        <div className="space-y-2">
+                                            <p className="text-xs font-bold text-slate-500">優先聯絡方式</p>
+                                            <div className="flex bg-slate-50 rounded-xl p-1 w-full">
+                                                <button onClick={() => setUserInfo({...userInfo, contactMethod: 'line'})} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${userInfo.contactMethod === 'line' ? 'bg-[#5B2274] text-white shadow-sm' : 'text-slate-400'}`}>LINE</button>
+                                                <button onClick={() => setUserInfo({...userInfo, contactMethod: 'phone'})} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${userInfo.contactMethod === 'phone' ? 'bg-[#5B2274] text-white shadow-sm' : 'text-slate-400'}`}>電話</button>
+                                            </div>
+                                        </div>
                                     </div>
                                     <div className="border-t border-slate-100 border-dashed my-4"></div>
-                                    <div className="space-y-3 pt-2"><h4 className="text-sm font-black text-slate-400 uppercase tracking-widest">優惠折扣</h4><div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">{myCoupons.map((c, i) => (<button key={i} onClick={() => setSelectedCoupon(selectedCoupon === c ? null : c)} className={`flex-shrink-0 px-3 py-2 rounded-xl border text-xs font-bold transition-all ${selectedCoupon === c ? 'bg-purple-100 border-[#5B2274] text-[#5B2274]' : 'bg-white border-slate-200 text-slate-600'}`}>{c.title} (-${c.discount})</button>))}{myCoupons.length === 0 && <span className="text-xs text-slate-400 py-2">無可用優惠券，請至菜單分頁領取</span>}</div><div className="flex items-start gap-3 p-3 bg-red-50 border border-red-100 rounded-xl cursor-pointer" onClick={() => setUseLoyaltyCard(!useLoyaltyCard)}><div className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 mt-0.5 ${useLoyaltyCard ? 'bg-red-500 border-red-500' : 'bg-white border-red-200'}`}>{useLoyaltyCard && <Icon name="check" size={14} className="text-white" />}</div><div><p className="text-sm font-bold text-red-800">使用集點卡折抵 $50</p><p className="text-[10px] text-red-500 mt-1 font-bold">※ 若現場核銷不符資格將收取原價</p></div></div></div>
+                                    <div className="space-y-3 pt-2"><h4 className="text-sm font-black text-slate-400 uppercase tracking-widest">優惠折扣</h4><div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">{myCoupons.map((c, i) => (<button key={i} onClick={() => setSelectedCoupon(selectedCoupon === c ? null : c)} className={`flex-shrink-0 px-3 py-2 rounded-xl border text-xs font-bold transition-all ${selectedCoupon === c ? 'bg-purple-100 border-[#5B2274] text-[#5B2274]' : 'bg-white border-slate-200 text-slate-600'}`}>{c.title} (-${c.discount})</button>))}{myCoupons.length === 0 && <span className="text-xs text-slate-400 py-2">無可用優惠券，請至菜單分頁領取</span>}</div><div className="flex items-start gap-3 p-3 bg-red-50 border border-red-100 rounded-xl cursor-pointer" onClick={() => setUseLoyaltyCard(!useLoyaltyCard)}><div className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 mt-0.5 ${useLoyaltyCard ? 'bg-red-500 border-red-500' : 'bg-white border-red-200'}`}>{useLoyaltyCard && <Icon name="check" size={14} className="text-white" />}</div><div><p className="text-sm font-bold text-red-800">使用集點卡折抵 ${settings.pointRewardValue || 50}</p><p className="text-[10px] text-red-500 mt-1 font-bold">※ 若現場核銷不符資格將收取原價</p></div></div></div>
                                 </div>
-                                <div className="mt-2 pt-4 border-t border-slate-100"><div className="flex justify-between items-center mb-4"><span className="font-bold text-slate-500">總計金額</span><div className="text-right">{(useLoyaltyCard || (selectedCoupon && cartTotal >= selectedCoupon.minSpend)) && <span className="text-xs text-slate-400 line-through mr-2">${cartTotal}</span>}<span className="font-black text-2xl text-[#5B2274]">${finalTotal}</span></div></div><button onClick={handlePreSubmit} className="w-full bg-[#5B2274] text-white py-4 rounded-2xl font-black text-lg shadow-xl hover:bg-[#4a1b5e] active:scale-95 transition-all">送出訂單</button></div>
+								<div className="mt-2 pt-4 border-t border-slate-100">
+                                    <div className="space-y-2 mb-4">
+                                        <div className="flex justify-between items-center text-slate-500">
+                                            <span className="font-bold text-sm">小計</span>
+                                            <span className="font-bold text-sm text-slate-700">${cart.reduce((sum, item) => sum + item.totalPrice, 0)}</span>
+                                        </div>
+                                        
+                                        {/* [Updated] 動態優惠顯示 */}
+                                        {orderCalc.discount > 0 && (
+                                            <div className="flex justify-between items-center text-red-500">
+                                                <span className="font-bold text-sm flex items-center gap-1">
+                                                    <Icon name="ticket" size={14} />
+                                                    {orderCalc.name}
+                                                </span>
+                                                <span className="font-bold text-sm">-${orderCalc.discount}</span>
+                                            </div>
+                                        )}
+
+                                        <div className="flex justify-between items-center pt-2 border-t border-slate-100">
+                                            <span className="font-black text-lg text-slate-800">總計金額</span>
+                                            <span className="font-black text-2xl text-[#5B2274]">${orderCalc.final}</span>
+                                        </div>
+                                    </div>
+                                    <button onClick={handlePreSubmit} className="w-full bg-[#5B2274] text-white py-4 rounded-2xl font-black text-lg shadow-xl hover:bg-[#4a1b5e] active:scale-95 transition-all">送出訂單</button>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -2248,6 +2601,44 @@
                             onCancel={openCancelConfirm}
                             products={products}  // 新增這一行
                         />
+                    )}
+					
+					{/* [New] 強制註冊視窗 (無關閉按鈕，強制阻擋) */}
+                    {showRegisterModal && currentUser && (
+                        <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-6 backdrop-blur-md animate-fade-in">
+                            <div className="bg-white w-full max-w-sm rounded-3xl p-8 shadow-2xl relative overflow-hidden">
+                                <div className="absolute top-0 right-0 w-32 h-32 bg-purple-100 rounded-full blur-2xl -mr-16 -mt-16 pointer-events-none"></div>
+                                <div className="relative z-10 text-center">
+                                    <div className="w-16 h-16 bg-[#5B2274] text-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-purple-200">
+                                        <Icon name="user-plus" size={32} />
+                                    </div>
+                                    <h2 className="text-2xl font-[900] text-slate-800 mb-2">歡迎加入</h2>
+                                    <p className="text-sm text-slate-500 font-bold mb-8">初次使用請先完善會員資料</p>
+                                    
+                                    <form onSubmit={handleRegister} className="space-y-4 text-left">
+                                        <div>
+                                            <label className="text-xs font-black text-slate-400 ml-1 mb-1 block">您的姓名</label>
+                                            <input name="reg_name" type="text" placeholder="請輸入姓名" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-[#5B2274] focus:ring-1 focus:ring-[#5B2274] transition-all" defaultValue={lineDisplayName} />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-black text-slate-400 ml-1 mb-1 block">手機號碼</label>
+                                            <input name="reg_phone" type="tel" placeholder="請輸入手機號碼" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-[#5B2274] focus:ring-1 focus:ring-[#5B2274] transition-all" />
+                                        </div>
+                                        
+                                        <div className="flex items-start gap-3 p-3 bg-purple-50 rounded-xl mt-2">
+                                            <div className="mt-0.5 text-[#5B2274]"><Icon name="check-circle-2" size={16} /></div>
+                                            <p className="text-xs text-slate-600 font-bold leading-relaxed">
+                                                點擊註冊即代表您同意綁定此 LINE 帳號，並接受我們的服務條款。
+                                            </p>
+                                        </div>
+
+                                        <button type="submit" className="w-full bg-[#5B2274] text-white py-4 rounded-xl font-black text-lg shadow-xl active:scale-95 transition-all mt-4">
+                                            確認註冊
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
                     )}
                     
                 </div>
