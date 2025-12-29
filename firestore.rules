@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. 定義管理員 (請確認您的登入信箱完全符合下列之一)
+    function isAdmin() {
+      return request.auth != null && (
+        request.auth.token.email == "a0909921988@gmail.com" || 
+        request.auth.token.email == "cityburger.huwei@gmail.com"
+      );
+    }
+
+    // 2. 專案路徑
+    match /artifacts/cityburger-huwei-v1/public/data {
+      
+      // A. 公開資料：Admin可寫，所有人可讀
+      match /menu_display/{doc} { allow read: if true; allow write: if isAdmin(); }
+      match /settings/{doc} { allow read: if true; allow write: if isAdmin(); }
+      match /categories/{doc} { allow read: if true; allow write: if isAdmin(); }
+      match /products/{doc} { allow read: if true; allow write: if isAdmin(); }
+      match /sets/{doc} { allow read: if true; allow write: if isAdmin(); }
+      match /addons/{doc} { allow read: if true; allow write: if isAdmin(); }
+      match /materials/{doc} { allow read: if true; allow write: if isAdmin(); }
+      match /coupons/{doc} { allow read: if true; allow write: if isAdmin(); }
+      
+      // [Fix] 新增特約機構權限：所有人可讀(為了讓用戶綁定)，僅Admin可寫
+      match /organizations/{doc} { allow read: if true; allow write: if isAdmin(); }
+
+      // B. 使用者資料
+      // 允許 Admin 讀寫所有人的資料 (為了功能：顧客永久註記)
+      // 使用者只能讀寫自己的
+      match /users/{userId} {
+        allow read, write: if isAdmin() || (request.auth != null && request.auth.uid == userId);
+      }
+
+      // C. 訂單資料
+      match /orders/{orderId} {
+        // 建立：需登入且是本人
+        allow create: if request.auth != null && request.resource.data.customerUid == request.auth.uid;
+        
+        // 讀取/更新：Admin 或 本人
+        allow read, update: if isAdmin() || (request.auth != null && resource.data.customerUid == request.auth.uid);
+        
+        // 刪除：僅 Admin
+        allow delete: if isAdmin();
+      }
+    }
+  }
+}
