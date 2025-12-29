@@ -372,7 +372,663 @@
                 </div>
             );
         };
+		
+// --- [外部定義] 庫存檢查 ---
+        // --- [外部定義] 庫存檢查 ---
+        const checkStock = (prod, variant = null, materials = []) => {
+            if (!prod) return { isOut: true, label: '未知' };
+            if (prod.outOfStock || prod.isOut) return { isOut: true, label: '已售完' };
+            const outMaterials = materials ? materials.filter(m => m.isOut).map(m => m.id) : [];
+            if (variant) {
+                if (variant.isOut) return { isOut: true, label: '缺貨' };
+                if (variant.materials?.some(mId => outMaterials.includes(mId))) return { isOut: true, label: '缺貨' };
+            } 
+            if (prod.materials?.some(mId => outMaterials.includes(mId))) return { isOut: true, label: '缺貨' };
+            return { isOut: false, label: '' };
+        };
 
+        // --- [外部定義] 資料深度還原 ---
+        const rehydrateItem = (savedItem, allProducts) => {
+            if (!savedItem) return null;
+            const pid = savedItem.productId || savedItem.id;
+            const originalProduct = allProducts.find(p => p.id === pid);
+            
+            const product = originalProduct || {
+                id: pid,
+                name: savedItem.name || '未知商品',
+                price: savedItem.price || 0,
+                variants: [],
+                allowAddons: []
+            };
+
+            let variant = savedItem.variant;
+            if (!variant && savedItem.variantName && product.variants) {
+                variant = product.variants.find(v => v.name === savedItem.variantName);
+            }
+            if (!variant) variant = { name: savedItem.variantName || '單一規格', price: 0 };
+
+            return {
+                ...savedItem,
+                product,
+                variant,
+                addons: savedItem.addons || [],
+                name: product.name, 
+                variantName: variant.name 
+            };
+        };
+
+        // --- [外部定義] 訂單資料正規化 ---
+        const normalizeOrderItems = (items, allProducts) => {
+            return items.map(item => {
+                const hydratedMain = rehydrateItem(item, allProducts);
+                const newItem = { ...item, ...hydratedMain };
+
+                if (newItem.sideGroups) {
+                    const newSides = {};
+                    Object.keys(newItem.sideGroups).forEach(key => {
+                        const s = newItem.sideGroups[key];
+                        const rawData = s.product ? s : { ...s, productId: s.id }; 
+                        const hydratedSide = rehydrateItem(rawData, allProducts);
+                        if (hydratedSide) newSides[key] = hydratedSide;
+                    });
+                    newItem.sideGroups = newSides;
+                }
+
+                if (newItem.setChoices) {
+                    const newChoices = {};
+                    const processChoice = (ch) => {
+                        if (!ch) return null;
+                        const rawData = ch.product ? ch : { ...ch, productId: ch.id };
+                        return rehydrateItem(rawData, allProducts);
+                    };
+
+                    if (Array.isArray(newItem.setChoices)) {
+                        newItem.setChoices.forEach((ch, idx) => { if(ch) newChoices[idx] = processChoice(ch); });
+                    } else {
+                        Object.keys(newItem.setChoices).forEach(k => { newChoices[k] = processChoice(newItem.setChoices[k]); });
+                    }
+                    newItem.setChoices = newChoices;
+                }
+                return newItem;
+            });
+        };
+
+        // --- [外部定義] 子項目選擇器 ---
+        const SubItemSelector = ({ label, options, selected, defaultId, onChange, isRequired, addons, settings, materials, products }) => {
+            const [isExpanded, setIsExpanded] = useState(false);
+            const defaultProd = options.find(p => p.id === defaultId);
+            const basePrice = defaultProd ? defaultProd.variants?.[0]?.price || defaultProd.price : 0;
+            
+            const hasSelected = !!selected?.product;
+            const currentName = selected?.product ? selected.product.name : '請選擇';
+            const vName = selected?.variant?.name || selected?.variantName;
+            const currentVariant = (vName && vName !== '單一規格') ? `(${vName})` : '';
+            
+            const priceDiff = selected?.product ? ((selected.variant?.price || selected.product.price) - basePrice) : 0;
+            const displayPrice = priceDiff > 0 ? `+$${priceDiff}` : '';
+
+            const subProduct = selected?.product;
+            const subAvailableAddons = subProduct ? (addons || []).filter(a => (subProduct.allowAddons || []).includes(a.id)) : [];
+            const subAddonGroups = {};
+            subAvailableAddons.forEach(a => { const c = a.category || '其他'; if (!subAddonGroups[c]) subAddonGroups[c] = []; subAddonGroups[c].push(a); });
+            
+            let missingAddonGroups = [];
+            if (subProduct) {
+                Object.keys(subAddonGroups).forEach(cat => {
+                    const groupConfig = (settings?.addonGroups || []).find(g => g.name === cat);
+                    const min = groupConfig?.minSelect || 0;
+                    const selectedCount = selected.addons?.filter(a => a.category === cat).length || 0;
+                    if (min > 0 && selectedCount < min) missingAddonGroups.push(cat);
+                });
+            }
+            const isSubValid = missingAddonGroups.length === 0;
+
+            return (
+                <div className={`border-b border-slate-100 last:border-0 py-3 ${(!hasSelected && isRequired) || !isSubValid ? 'bg-red-50/50 -mx-2 px-2 rounded-lg' : ''}`}>
+                    <div className="flex justify-between items-center cursor-pointer py-1" onClick={() => setIsExpanded(!isExpanded)}>
+                        <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                                <span className={`font-bold text-[15px] ${((!hasSelected && isRequired) || !isSubValid) ? 'text-red-600' : 'text-slate-800'}`}>{label}</span>
+                                {isRequired && !hasSelected && <span className="text-[10px] bg-red-100 text-red-500 px-1.5 py-0.5 rounded font-bold">必選</span>}
+                                {hasSelected && !isSubValid && <span className="text-[10px] bg-red-100 text-red-500 px-1.5 py-0.5 rounded font-bold">客製化未完成</span>}
+                            </div>
+                            <div className={`text-sm ${hasSelected ? 'text-slate-600 font-bold' : 'text-slate-400'}`}>
+                                {currentName} {currentVariant} {displayPrice && <span className="text-[#5B2274]">{displayPrice}</span>}
+                            </div>
+                            {selected?.addons?.length > 0 && (
+                                <div className="text-xs text-slate-400 mt-0.5 font-bold">
+                                    {selected.addons.map(a => a.name).join(' / ')}
+                                </div>
+                            )}
+                        </div>
+                        <Icon name="ChevronDown" size={20} className={`text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}/>
+                    </div>
+
+                    {isExpanded && (
+                        <div className="bg-slate-50 rounded-xl p-3 space-y-2 mt-2 animate-fade-in border border-slate-100">
+                            {options.map(opt => {
+                                const stock = checkStock(opt, null, materials);
+                                const isSelected = selected?.product?.id === opt.id;
+                                const myBase = opt.variants?.[0]?.price || opt.price;
+                                const diff = myBase - basePrice;
+
+                                return (
+                                    <div key={opt.id} className={`rounded-lg border transition-all bg-white ${isSelected ? 'border-[#5B2274] shadow-sm' : 'border-slate-200'}`}>
+                                        <button disabled={stock.isOut} onClick={() => {
+                                                const v = opt.variants?.find(vr => !checkStock(opt, vr, materials).isOut) || opt.variants?.[0];
+                                                onChange({ product: opt, variant: v, addons: [] });
+                                            }}
+                                            className="w-full p-3 flex justify-between items-center text-left"
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${isSelected ? 'border-[#5B2274] bg-[#5B2274]' : 'border-slate-300'}`}>
+                                                    {isSelected && <Icon name="Check" size={10} className="text-white"/>}
+                                                </div>
+                                                <div className={stock.isOut ? "opacity-50" : ""}>
+                                                    <span className="font-bold text-slate-800 text-sm">{opt.name}</span>
+                                                    {stock.isOut && <span className="text-[10px] text-red-500 ml-2">售完</span>}
+                                                </div>
+                                            </div>
+                                            {diff > 0 && <span className="text-xs font-black text-[#5B2274]">+{diff}</span>}
+                                        </button>
+
+                                        {isSelected && ((opt.variants?.length > 1) || (opt.allowAddons?.length > 0)) && (
+                                            <div className="px-3 pb-3 pl-10 space-y-3 pt-1 border-t border-dashed border-slate-100">
+                                                {opt.variants?.length > 1 && (
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {opt.variants.map((v, i) => {
+                                                            const vStock = checkStock(opt, v, materials);
+                                                            const isVSel = selected.variant?.name === v.name;
+                                                            const vDiff = v.price - myBase;
+                                                            return (
+                                                                <button key={i} disabled={vStock.isOut} onClick={(e) => { e.stopPropagation(); onChange({ ...selected, variant: v }); }}
+                                                                    className={`px-3 py-1.5 text-xs rounded border font-bold transition-all ${isVSel ? 'bg-[#5B2274] text-white border-[#5B2274]' : 'bg-white text-slate-600 border-slate-200'} ${vStock.isOut ? 'opacity-40 line-through' : ''}`}>
+                                                                    {v.name} {vDiff > 0 && `+$${vDiff}`}
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                )}
+                                                {Object.entries(subAddonGroups).map(([cat, groupAddons]) => {
+                                                    const groupConfig = (settings?.addonGroups || []).find(g => g.name === cat);
+                                                    const min = groupConfig?.minSelect || (groupConfig?.required ? 1 : 0);
+                                                    const currentSelectedCount = selected.addons?.filter(a => a.category === cat).length || 0;
+                                                    const isMissing = min > 0 && currentSelectedCount < min;
+
+                                                    return (
+                                                        <div key={cat} className={isMissing ? 'bg-red-50 p-2 rounded-lg -mx-2' : ''}>
+                                                            <div className="flex items-center gap-2 mb-1">
+                                                                <span className={`text-[10px] font-bold ${isMissing ? 'text-red-500' : 'text-slate-400'}`}>{cat}</span>
+                                                                {isMissing && <span className="text-[9px] bg-red-100 text-red-500 px-1 rounded">必填</span>}
+                                                            </div>
+                                                            <div className="flex flex-wrap gap-2">
+                                                                {groupAddons.map(addon => {
+                                                                    const isChecked = selected.addons?.some(ad => ad.id === addon.id);
+                                                                    return (
+                                                                        <button key={addon.id} onClick={(e) => { 
+                                                                            e.stopPropagation(); 
+                                                                            const current = selected.addons || []; 
+                                                                            const isSingle = groupConfig?.maxSelect === 1;
+                                                                            let next = isSingle ? (isChecked?[]:[addon]) : (isChecked?current.filter(ad=>ad.id!==addon.id):[...current, addon]); 
+                                                                            onChange({ ...selected, addons: next }); 
+                                                                        }}
+                                                                        className={`px-3 py-1.5 text-xs rounded border font-bold transition-all flex items-center gap-1 ${isChecked ? 'bg-orange-50 text-orange-600 border-orange-200' : 'bg-white text-slate-500 border-slate-200'}`}>
+                                                                            {addon.name} {addon.price > 0 && `+$${addon.price}`}
+                                                                        </button>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // --- [外部定義] 商品建構器 ---
+        const ProductBuilder = ({ product, initialData, onConfirm, onCancel, sets, addons, settings, materials, products }) => {
+            const [variant, setVariant] = useState(() => {
+                if (initialData?.variant) return initialData.variant;
+                if (initialData?.variantName) return product.variants?.find(v => v.name === initialData.variantName) || { name: initialData.variantName, price: 0 };
+                return product.variants?.[0] || {name: '單一規格', price: product.price};
+            });
+
+            const [selectedAddons, setSelectedAddons] = useState(() => {
+                const initAddons = {};
+                (initialData?.addons || []).forEach(a => { 
+                    const c = a.category || '其他'; 
+                    if(!initAddons[c]) initAddons[c] = []; 
+                    initAddons[c].push(a); 
+                });
+                return initAddons;
+            });
+
+            const [note, setNote] = useState(initialData?.note || '');
+            const [qty, setQty] = useState(initialData?.qty || 1);
+            
+            const [sideSelections, setSideSelections] = useState(initialData?.sideGroups || {});
+            const [selectedSetId, setSelectedSetId] = useState(initialData?.set?.id || null);
+            
+            // [Fix] 套餐內容回填：補完固定餐點 (Fixed Items)
+            const [setChoices, setSetChoices] = useState(() => {
+                const choices = { ...initialData?.setChoices };
+                // 若有選套餐，檢查是否有 fixed item 沒被存入
+                const currentSet = sets.find(s => s.id === (selectedSetId || initialData?.set?.id));
+                if (currentSet && currentSet.contents) {
+                    currentSet.contents.forEach((c, idx) => {
+                        // 若該位置是空的，且是固定餐點，則自動填入
+                        if (!choices[idx] && !choices[c.id] && c.type === 'fixed') {
+                            const p = products.find(prod => prod.id === c.productId);
+                            if (p) {
+                                // 建立一個虛擬選擇
+                                const v = p.variants?.[0] || { name: '單一規格', price: p.price };
+                                choices[idx] = { product: p, variant: v, addons: [] };
+                            }
+                        }
+                    });
+                }
+                return choices;
+            });
+
+            const validate = () => {
+                let missing = [];
+                const availableAddons = (addons || []).filter(a => (product.allowAddons || []).includes(a.id));
+                const addonGroups = {};
+                availableAddons.forEach(a => { const c = a.category || '其他'; if (!addonGroups[c]) addonGroups[c] = []; addonGroups[c].push(a); });
+                Object.keys(addonGroups).forEach(cat => {
+                        const groupConfig = (settings?.addonGroups || []).find(g => g.name === cat);
+                        const min = groupConfig?.minSelect || 0;
+                        const current = selectedAddons[cat]?.length || 0;
+                        if (min > 0 && current < min) missing.push(cat);
+                });
+                if (product.sideGroups) { 
+                    product.sideGroups.forEach((g, idx) => { 
+                        const sel = sideSelections[idx] || sideSelections[g.id];
+                        if (!sel?.product) missing.push(`附餐: ${g.title}`); 
+                    }); 
+                }
+                if (selectedSetId) { 
+                    const setObj = sets.find(s => s.id === selectedSetId); 
+                    if (setObj) { 
+                        setObj.contents?.forEach((c, idx) => { 
+                            const sel = setChoices[idx] || setChoices[c.id];
+                            if (!sel?.product) missing.push(`套餐: ${c.label}`); 
+                        }); 
+                    } 
+                }
+                return missing;
+            };
+            const missingFields = validate();
+            const isReadyToAdd = missingFields.length === 0;
+
+            const calculateTotal = () => {
+                let total = variant.price;
+                Object.values(selectedAddons).flat().forEach(a => total += (a.price || 0));
+                if (product.sideGroups) {
+                    product.sideGroups.forEach((g, idx) => {
+                        const sel = sideSelections[idx] || sideSelections[g.id];
+                        if (sel?.product) {
+                            const baseP = products.find(p=>p.id === g.defaultProductId);
+                            const basePrice = baseP ? (baseP.variants?.[0]?.price || baseP.price) : 0;
+                            const currentPrice = (sel.variant?.price || sel.product.price);
+                            const addonPrice = (sel.addons || []).reduce((sum, a) => sum + a.price, 0);
+                            total += Math.max(0, currentPrice - basePrice) + addonPrice;
+                        }
+                    });
+                }
+                if (selectedSetId) {
+                    const setObj = sets.find(s => s.id === selectedSetId);
+                    if (setObj) {
+                        total += setObj.price;
+                        setObj.contents?.forEach((content, idx) => {
+                            const sel = setChoices[idx] || setChoices[content.id];
+                            if (sel?.product) {
+                                let basePrice = 0;
+                                if (content.type === 'fixed') {
+                                    const bp = products.find(p=>p.id===content.productId);
+                                    basePrice = bp ? (bp.variants?.[0]?.price || bp.price) : 0;
+                                } else {
+                                    const bp = products.find(p=>p.id===content.defaultProductId);
+                                    basePrice = bp ? (bp.variants?.[0]?.price || bp.price) : 0;
+                                }
+                                const currentPrice = (sel.variant?.price || sel.product.price);
+                                const addonPrice = (sel.addons || []).reduce((sum, a) => sum + a.price, 0);
+                                total += Math.max(0, currentPrice - basePrice) + addonPrice;
+                            }
+                        });
+                    }
+                }
+                return total * qty;
+            };
+
+            const handleAddonClick = (addon) => {
+                const cat = addon.category || '其他';
+                const current = selectedAddons[cat] || [];
+                const exists = current.find(a => a.id === addon.id);
+                const groupConfig = (settings?.addonGroups || []).find(g => g.name === cat);
+                const isSingle = groupConfig?.maxSelect === 1;
+                let next = isSingle ? (exists ? [] : [addon]) : (exists ? current.filter(a => a.id !== addon.id) : [...current, addon]);
+                setSelectedAddons({ ...selectedAddons, [cat]: next });
+            };
+
+            const availableAddons = (addons || []).filter(a => (product.allowAddons || []).includes(a.id));
+            const addonGroups = {};
+            availableAddons.forEach(a => { const c = a.category || '其他'; if (!addonGroups[c]) addonGroups[c] = []; addonGroups[c].push(a); });
+
+            return (
+                <div className="flex-1 flex flex-col h-full bg-white relative">
+                    <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white z-10 sticky top-0">
+                        <button onClick={onCancel} className="w-9 h-9 rounded-full bg-slate-50 flex items-center justify-center text-slate-600 hover:bg-slate-100"><Icon name="ArrowLeft" size={20}/></button>
+                        <span className="font-[1000] text-slate-800 text-lg line-clamp-1">{product.name}</span>
+                        <div className="w-9"></div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-6 pb-32 space-y-8">
+                        {/* 規格 */}
+                        {product.variants?.length > 1 && (
+                            <div>
+                                <div className="flex items-center justify-between mb-3">
+                                    <h4 className="font-[1000] text-slate-800 text-base">選擇規格</h4>
+                                    <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded">必選</span>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {product.variants.map((v, i) => {
+                                        const stock = checkStock(product, v, materials);
+                                        const isSel = variant.name === v.name;
+                                        return (
+                                            <button key={i} disabled={stock.isOut} onClick={() => setVariant(v)} 
+                                                className={`px-4 py-2.5 rounded-lg border font-bold transition-all text-sm ${isSel ? 'border-[#5B2274] bg-[#5B2274] text-white' : 'border-slate-200 bg-white text-slate-600'} ${stock.isOut ? 'opacity-40 cursor-not-allowed' : 'active:scale-95'}`}>
+                                                {v.name} <span className="opacity-80">${v.price}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 客製化 */}
+                        {Object.entries(addonGroups).map(([catName, groupAddons]) => {
+                            const groupConfig = (settings?.addonGroups || []).find(g => g.name === catName);
+                            const min = groupConfig?.minSelect || 0;
+                            const isRequired = min > 0;
+                            const currentCount = selectedAddons[catName]?.length || 0;
+                            const isMissing = isRequired && currentCount < min;
+
+                            return (
+                                <div key={catName} className={isMissing ? 'bg-red-50 p-3 rounded-xl -mx-3' : ''}>
+                                    <div className="flex items-center justify-between mb-3">
+                                        <div className="flex items-center gap-2">
+                                            <h4 className={`font-[1000] text-base ${isMissing ? 'text-red-600' : 'text-slate-800'}`}>{catName}</h4>
+                                            {isMissing && <span className="text-[10px] bg-red-100 text-red-500 px-2 py-0.5 rounded font-bold">必選</span>}
+                                        </div>
+                                        <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded">{(groupConfig?.maxSelect === 1) ? '單選' : '多選'}</span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {groupAddons.map(addon => {
+                                            const isSelected = selectedAddons[catName]?.some(a => a.id === addon.id);
+                                            return (
+                                                <button key={addon.id} onClick={() => handleAddonClick(addon)}
+                                                    className={`px-4 py-2.5 rounded-lg border font-bold transition-all text-sm flex items-center gap-1 ${isSelected ? 'border-[#5B2274] bg-purple-50 text-[#5B2274]' : 'border-slate-200 bg-white text-slate-600'} hover:border-purple-200 active:scale-95`}>
+                                                    {addon.name} {addon.price > 0 && <span className="text-xs opacity-80">+${addon.price}</span>}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            );
+                        })}
+
+                        {/* 附餐與套餐 */}
+                        {((product.sideGroups?.length > 0) || (product.allowSets?.length > 0)) && (
+                            <div className="space-y-6 pt-6 border-t border-slate-100">
+                                {(product.sideGroups || []).map((group, idx) => {
+                                    const groupProducts = products.filter(p => String(p.categoryId) === String(group.categoryId) && !p.isHidden);
+                                    // Fix: 同時嘗試用 ID 和 Index 讀取
+                                    const selected = sideSelections[group.id] || sideSelections[idx];
+                                    return <SubItemSelector key={`side-${idx}`} label={`附餐：${group.title}`} options={groupProducts} defaultId={group.defaultProductId} 
+                                        selected={selected} 
+                                        onChange={(val) => setSideSelections({ ...sideSelections, [group.id]: val })} 
+                                        isRequired={true} addons={addons} settings={settings} materials={materials} products={products} />;
+                                })}
+
+                                {(product.allowSets || []).length > 0 && (
+                                    <div>
+                                        <h4 className="font-[1000] text-slate-800 text-base mb-4">升級套餐</h4>
+                                        <div className="space-y-4">
+                                            <div onClick={() => { setSelectedSetId(null); setSetChoices({}); }} className={`flex justify-between items-center p-4 rounded-xl border-2 cursor-pointer transition-all ${!selectedSetId ? 'border-slate-800 bg-slate-800 text-white shadow-lg' : 'border-slate-100 bg-white text-slate-500'}`}><span className="font-bold text-base">單點 (不加套餐)</span>{selectedSetId === null && <Icon name="CheckCircle" size={20}/>}</div>
+                                            {product.allowSets.map(setId => {
+                                                const setObj = sets.find(s => s.id === setId);
+                                                if (!setObj) return null;
+                                                const isSel = selectedSetId === setObj.id;
+                                                return (
+                                                    <div key={setObj.id} className={`rounded-xl border-2 transition-all overflow-hidden ${isSel ? 'border-[#5B2274] bg-white' : 'border-slate-100 bg-white'}`}>
+                                                        <div onClick={() => setSelectedSetId(setObj.id)} className="p-4 cursor-pointer"><div className="flex justify-between items-center mb-1"><span className={`font-[900] text-lg ${isSel ? 'text-[#5B2274]' : 'text-slate-800'}`}>{setObj.name}</span><span className="font-[1000] text-[#5B2274] text-lg">+${setObj.price}</span></div><div className="text-sm text-slate-400 font-medium">{setObj.contents?.map(c => c.label).join(' + ')}</div></div>
+                                                        {isSel && (<div className="px-4 pb-4 space-y-2 border-t border-slate-100 pt-3">{setObj.contents?.map((content, cIdx) => { 
+                                                            let options = []; let defaultId = ''; 
+                                                            if (content.type === 'fixed') { const p = products.find(p => p.id === content.productId); if (p) options = [p]; defaultId = content.productId; } 
+                                                            else { options = products.filter(p => String(p.categoryId) === String(content.categoryId) && !p.isHidden); defaultId = content.defaultProductId; } 
+                                                            
+                                                            // Fix: 同時嘗試用 ID 和 Index 讀取
+                                                            const selected = setChoices[content.id] || setChoices[cIdx];
+                                                            
+                                                            return <SubItemSelector key={`set-content-${cIdx}`} label={content.label} options={options} defaultId={defaultId} 
+                                                                selected={selected} 
+                                                                onChange={(val) => setSetChoices({ ...setChoices, [cIdx]: val })} // 寫入時用 index 確保順序
+                                                                isRequired={true} addons={addons} settings={settings} materials={materials} products={products} />; 
+                                                        })}</div>)}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        
+                        <div className="space-y-4 pt-6 pb-2 border-t border-slate-100">
+                            <div><h4 className="font-[900] text-slate-800 text-base mb-2">備註</h4><textarea className="w-full p-3 bg-slate-100 border-none rounded-xl font-bold text-slate-600 outline-none focus:ring-2 focus:ring-[#5B2274]/20 resize-none text-base" rows="2" placeholder="備註..." value={note} onChange={e => setNote(e.target.value)}></textarea></div>
+                            <div className="flex items-center justify-between"><span className="font-[900] text-slate-800 text-lg">數量</span><div className="flex items-center gap-4 bg-slate-100 p-1.5 rounded-xl border border-slate-200"><button onClick={() => setQty(Math.max(1, qty - 1))} className="w-10 h-10 bg-white border border-slate-200 rounded-lg flex items-center justify-center shadow-sm active:scale-90 transition-transform"><Icon name="Minus" size={18} className="text-slate-600"/></button><span className="font-[1000] text-xl w-8 text-center text-slate-800">{qty}</span><button onClick={() => setQty(qty + 1)} className="w-10 h-10 bg-[#5B2274] text-white rounded-lg flex items-center justify-center shadow-lg shadow-purple-200 active:scale-90 transition-transform"><Icon name="Plus" size={18}/></button></div></div>
+                        </div>
+                    </div>
+
+                    <div className="p-4 bg-white border-t border-slate-100 sticky bottom-0 z-20 shadow-[0_-5px_20px_rgba(0,0,0,0.05)]">
+                        <button disabled={!isReadyToAdd} onClick={() => { const setObj = selectedSetId ? sets.find(s => s.id === selectedSetId) : null; const newItem = { productId: product.id, name: product.name, variantName: variant.name, variant: variant, unitPrice: calculateTotal() / qty, qty: qty, totalPrice: calculateTotal(), addons: Object.values(selectedAddons).flat(), sideGroups: sideSelections, set: setObj, setChoices: setChoices, note: note, image: product.image }; onConfirm(newItem); }} className={`w-full py-4 rounded-2xl font-[1000] text-lg shadow-none flex justify-between px-6 transition-all ${isReadyToAdd ? 'bg-[#5B2274] text-white hover:bg-[#4a1b5e] active:scale-[0.98]' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}><span>{isReadyToAdd ? (initialData ? '確認修改' : '加入訂單') : `未完成 (${missingFields.length})`}</span><span>${calculateTotal()}</span></button>
+                    </div>
+                </div>
+            );
+        };
+
+        // [New] 訂單變更抽屜主元件 (V32.0: 資料讀取萬能版 / 樣式完全復刻)
+        const EditCartDrawer = ({ order, products, categories, sets, addons, settings, materials, onClose, onSave }) => {
+            const [items, setItems] = useState(() => {
+                const rawItems = JSON.parse(JSON.stringify(order.items || []));
+                return normalizeOrderItems(rawItems, products);
+            });
+            const [pickupDate, setPickupDate] = useState(order.userInfo?.pickupDate || '');
+            const [pickupTime, setPickupTime] = useState(order.userInfo?.pickupTime || '');
+            
+            const [viewStack, setViewStack] = useState(['cart']); 
+            const currentView = viewStack[viewStack.length - 1];
+            const [activeCategory, setActiveCategory] = useState(categories[0]?.id || '');
+            const [searchTerm, setSearchTerm] = useState('');
+            const [editingIndex, setEditingIndex] = useState(null); 
+            const [selectedProduct, setSelectedProduct] = useState(null);
+
+            const pushView = (view) => setViewStack([...viewStack, view]);
+            const popView = () => { if (viewStack.length > 1) setViewStack(viewStack.slice(0, -1)); else onClose(); };
+            const resetToCart = () => setViewStack(['cart']);
+
+            const total = items.reduce((sum, item) => item.skip ? sum : sum + (item.totalPrice || 0), 0);
+            const updateQty = (idx, delta) => { const newItems = [...items]; const item = newItems[idx]; const newQty = Math.max(1, item.qty + delta); const unitPrice = item.totalPrice / item.qty; item.qty = newQty; item.totalPrice = unitPrice * newQty; setItems(newItems); };
+            const toggleSkip = (idx) => { const newItems = [...items]; newItems[idx].skip = !newItems[idx].skip; setItems(newItems); };
+            const removeItem = (idx) => { if(confirm('確定移除？')) setItems(items.filter((_, i) => i !== idx)); };
+            const handleEditItem = (index) => { const item = items[index]; const product = item.product || products.find(p => p.id === (item.productId || item.id)); if (!product) return alert('找不到商品資料'); setEditingIndex(index); setSelectedProduct(product); pushView('product'); };
+            const handleSave = () => { onSave({ ...order, items: items, totalPrice: total, userInfo: { ...order.userInfo, pickupDate, pickupTime } }); };
+
+            // [萬能資料讀取] 
+            const getItemDisplayData = (item) => {
+                const pName = item.product ? item.product.name : item.name;
+                const vName = item.variant?.name || item.variantName;
+                const adList = item.addons || [];
+                return { 
+                    name: pName, 
+                    variant: (vName && vName !== '單一規格') ? vName : '', 
+                    addons: adList.map(a => a.name) 
+                };
+            };
+
+            const renderContent = () => {
+                if (currentView === 'product' && selectedProduct) { return <ProductBuilder product={selectedProduct} initialData={editingIndex !== null ? items[editingIndex] : null} onCancel={() => { setSelectedProduct(null); setEditingIndex(null); popView(); }} onConfirm={(newItem) => { if (editingIndex !== null) { const newItems = [...items]; newItems[editingIndex] = newItem; setItems(newItems); } else { setItems([...items, newItem]); } setSelectedProduct(null); setEditingIndex(null); resetToCart(); }} sets={sets} addons={addons} settings={settings} materials={materials} products={products} />; }
+                return (
+                    <div className="flex flex-col h-full">
+                        <div className="px-6 py-4 bg-white border-b border-slate-100 flex justify-between items-center shrink-0 z-20 shadow-[0_2px_10px_rgba(0,0,0,0.03)]"><div className="flex items-center gap-3">{currentView === 'menu' ? (<button onClick={popView} className="w-10 h-10 rounded-full bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-600 transition-colors"><Icon name="ArrowLeft" size={20}/></button>) : (<div className="bg-[#5B2274] w-10 h-10 flex items-center justify-center rounded-xl text-white shadow-lg shadow-purple-100"><Icon name="Edit3" size={20}/></div>)}<div><h3 className="text-xl font-[1000] text-slate-800">{currentView === 'menu' ? '新增商品' : '變更訂單'}</h3></div></div><button onClick={onClose} className="w-10 h-10 rounded-full bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-400 transition-colors"><Icon name="X" size={22}/></button></div>
+                        <div className="flex-1 overflow-hidden relative bg-[#F8FAFC]">
+                            {currentView === 'cart' && (
+                                <div className="h-full overflow-y-auto custom-scrollbar p-4 pb-32 space-y-4">
+                                    <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex gap-4"><div className="space-y-1 flex-1"><div className="flex items-center gap-1 text-[10px] font-black text-slate-400 uppercase tracking-wider"><Icon name="Calendar" size={10}/> 取餐日期</div><input type="date" className="w-full bg-slate-50 border-none rounded-xl px-3 py-2 text-sm font-bold text-slate-700 outline-none" value={pickupDate} onChange={e => setPickupDate(e.target.value)} /></div><div className="space-y-1 flex-1"><div className="flex items-center gap-1 text-[10px] font-black text-slate-400 uppercase tracking-wider"><Icon name="Clock" size={10}/> 取餐時間</div><input type="time" className="w-full bg-slate-50 border-none rounded-xl px-3 py-2 text-sm font-bold text-slate-700 outline-none" value={pickupTime === 'ASAP' ? '' : pickupTime} onChange={e => setPickupTime(e.target.value)} /></div></div>
+                                    {items.map((item, idx) => {
+                                        const main = getItemDisplayData(item);
+                                        return (
+                                            <div key={idx} className="space-y-8 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm">
+                                                <div className="flex gap-4 items-start">
+                                                    {/* Left: Qty */}
+                                                    <div className="w-9 h-9 bg-slate-100 rounded-lg flex items-center justify-center text-slate-600 font-[900] text-sm shrink-0 mt-0.5">{item.qty}x</div>
+                                                    
+                                                    <div className="flex-1 min-w-0">
+                                                        {/* Header */}
+                                                        <div className="flex justify-between items-start mb-1">
+                                                            <div className="font-[900] text-slate-800 text-lg leading-tight">{main.name}</div>
+                                                            <div className="font-[900] text-slate-800 text-lg ml-3">${item.totalPrice}</div>
+                                                        </div>
+
+                                                        {/* Main Specs */}
+                                                        {(main.variant || main.addons.length > 0) && (
+                                                            <div className="text-sm font-bold text-slate-400 mb-3">
+                                                                {[main.variant, ...main.addons].filter(Boolean).join(' / ')}
+                                                            </div>
+                                                        )}
+
+                                                        {/* Side Groups (附餐) - 樣式 1:1 復刻 */}
+                                                        {item.sideGroups && Object.values(item.sideGroups).some(s => s.product || s.name) && (
+                                                            <div className="bg-[#FAF5FF] rounded-xl p-4 mb-3 space-y-3">
+                                                                <div className="text-sm font-[900] text-[#5B2274]">附餐：</div>
+                                                                <div className="space-y-2">
+                                                                    {Object.values(item.sideGroups).map((s, i) => {
+                                                                        const info = getItemDisplayData(s);
+                                                                        if (!info.name) return null;
+                                                                        return (
+                                                                            <div key={i}>
+                                                                                <div className="flex items-start text-sm font-bold text-slate-700">
+                                                                                    <span className="mr-1.5 text-slate-400">•</span>
+                                                                                    <span>{info.name}</span>
+                                                                                </div>
+                                                                                {(info.variant || info.addons.length > 0) && (
+                                                                                    <div className="text-xs font-bold text-slate-400 pl-4 mt-0.5">
+                                                                                        {[info.variant, ...info.addons].filter(Boolean).join(' / ')}
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Set Groups (套餐) - 樣式 1:1 復刻 */}
+                                                        {item.set && (
+                                                            <div className="bg-[#FAF5FF] rounded-xl p-4 mb-3 space-y-3">
+                                                                <div className="text-sm font-[900] text-[#5B2274]">升級套餐：{item.set.name}</div>
+                                                                <div className="space-y-2">
+                                                                    {item.set.contents?.map((c, ci) => {
+                                                                        const choice = item.setChoices ? (item.setChoices[ci] || item.setChoices[c.id]) : null;
+                                                                        
+                                                                        let info = { name: '', variant: '', addons: [] };
+                                                                        if (choice) {
+                                                                            info = getItemDisplayData(choice);
+                                                                        } else if (c.type === 'fixed') {
+                                                                            const fp = products.find(p => p.id === c.productId);
+                                                                            info.name = fp ? fp.name : '固定餐點';
+                                                                        }
+
+                                                                        if (!info.name) return null;
+
+                                                                        return (
+                                                                            <div key={ci}>
+                                                                                <div className="flex items-start text-sm font-bold text-slate-700">
+                                                                                    <span className="mr-1.5 text-slate-400">•</span>
+                                                                                    <span>{info.name}</span>
+                                                                                </div>
+                                                                                {(info.variant || info.addons.length > 0) && (
+                                                                                    <div className="text-xs font-bold text-slate-400 pl-4 mt-0.5">
+                                                                                        {[info.variant, ...info.addons].filter(Boolean).join(' / ')}
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Note */}
+                                                        {item.note && (
+                                                            <div className="bg-orange-50 rounded-xl p-4 mb-3 text-sm font-bold text-orange-600">
+                                                                備註：{item.note}
+                                                            </div>
+                                                        )}
+
+                                                        {/* Buttons */}
+                                                        <div className="flex items-center justify-between mt-2 pt-3 border-t border-dashed border-slate-100">
+                                                            <div className="flex gap-2">
+                                                                <button onClick={() => updateQty(idx, -1)} className="w-9 h-9 flex items-center justify-center bg-slate-100 text-slate-500 rounded-lg hover:bg-slate-200"><Icon name="Minus" size={16}/></button>
+                                                                <button onClick={() => updateQty(idx, 1)} className="w-9 h-9 flex items-center justify-center bg-purple-50 text-[#5B2274] rounded-lg hover:bg-purple-100"><Icon name="Plus" size={16}/></button>
+                                                            </div>
+                                                            <div className="flex gap-2">
+                                                                <button onClick={() => handleEditItem(idx)} className="w-9 h-9 flex items-center justify-center bg-blue-50 text-blue-500 rounded-lg hover:bg-blue-100" title="編輯"><Icon name="Edit3" size={16}/></button>
+                                                                <button onClick={() => toggleSkip(idx)} className={`w-9 h-9 flex items-center justify-center rounded-lg ${item.skip ? 'bg-slate-600 text-white' : 'bg-slate-50 text-slate-400'}`} title="劃掉"><Icon name={item.skip ? "EyeOff" : "Eye"} size={16}/></button>
+                                                                <button onClick={() => removeItem(idx)} className="w-9 h-9 flex items-center justify-center bg-red-50 text-red-500 rounded-lg hover:bg-red-100" title="移除"><Icon name="Trash2" size={16}/></button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                    <button onClick={() => { setEditingIndex(null); setSelectedProduct(null); pushView('menu'); }} className="w-full py-5 border-2 border-dashed border-slate-300 rounded-3xl text-slate-400 font-[1000] text-lg flex items-center justify-center gap-2 hover:bg-slate-50 hover:border-slate-400 hover:text-slate-500 transition-all active:scale-[0.99]"><Icon name="PlusCircle" size={24}/> 新增商品</button>
+                                </div>
+                            )}
+                            {currentView === 'menu' && (
+                                <div className="flex h-full"><div className="w-[28%] bg-slate-50 h-full overflow-y-auto custom-scrollbar border-r border-slate-200">{categories.map(c => (<button key={c.id} onClick={() => setActiveCategory(c.id)} className={`w-full py-5 px-3 text-xs font-[900] text-left transition-all relative ${activeCategory === c.id ? 'bg-white text-[#5B2274]' : 'text-slate-400 hover:bg-slate-100'}`}>{activeCategory === c.id && <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#5B2274] rounded-r-full"></div>}{c.name}</button>))}</div><div className="w-[72%] h-full overflow-y-auto custom-scrollbar p-4 bg-white pb-20"><div className="sticky top-0 bg-white z-10 pb-4"><div className="relative"><Icon name="Search" size={16} className="absolute left-3 top-3 text-slate-400"/><input type="text" placeholder="搜尋..." className="w-full bg-slate-50 border border-slate-100 rounded-2xl pl-10 pr-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-[#5B2274]/10 transition-all" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div></div><div className="space-y-4">{products.filter(p => (String(p.categoryId) === String(activeCategory)) && !p.isHidden && p.name.includes(searchTerm)).map(p => { const stock = checkStock(p, null, materials); return (<button key={p.id} disabled={stock.isOut} onClick={() => { setSelectedProduct(p); setEditingIndex(null); pushView('product'); }} className={`w-full p-3 rounded-2xl border flex items-center gap-3 transition-all text-left ${stock.isOut ? 'opacity-50 grayscale border-slate-100 cursor-not-allowed' : 'border-slate-100 hover:border-[#5B2274] hover:shadow-lg bg-white group'}`}><div className="flex-1 min-w-0"><div className="font-bold text-slate-700 text-sm mb-1 line-clamp-1">{p.name}</div><div className="text-base font-[1000] text-slate-900">${p.price}</div></div>{!stock.isOut && <div className="w-8 h-8 rounded-full bg-[#5B2274] text-white flex items-center justify-center shadow-md shadow-purple-200"><Icon name="Plus" size={16}/></div>}</button>); })}</div></div></div>
+                            )}
+                        </div>
+
+                        {currentView === 'cart' && (
+                            <div className="p-5 bg-white border-t border-slate-100 shadow-[0_-5px_40px_rgba(0,0,0,0.08)] z-30 pb-10">
+                                <div className="flex justify-between items-end mb-5 px-2"><span className="text-xs font-black text-slate-400 uppercase tracking-widest">修改後總金額</span><span className="text-4xl font-[1000] text-[#5B2274] tracking-tight">${total}</span></div>
+                                <div className="flex gap-3"><button onClick={onClose} className="w-24 rounded-2xl bg-slate-100 text-slate-500 flex items-center justify-center hover:bg-slate-200 transition-all font-bold">放棄變更</button><button onClick={handleSave} className="flex-1 h-16 bg-[#5B2274] text-white font-[1000] text-xl rounded-2xl hover:bg-[#4a1b5e] flex items-center justify-center gap-3">儲存變更</button></div>
+                            </div>
+                        )}
+                    </div>
+                );
+            };
+
+            return (
+                <div className="fixed inset-0 z-[110] flex items-center justify-center">
+                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity" onClick={onClose} />
+                    <div className="bg-[#F8FAFC] w-full max-w-2xl h-[90vh] md:rounded-[2rem] rounded-t-[2rem] shadow-2xl relative z-10 flex flex-col overflow-hidden animate-slide-up transform">
+                        {renderContent()}
+                    </div>
+                </div>
+            );
+        };
+		
         function App() {
             const [user, setUser] = useState(null);
             const [loading, setLoading] = useState(true);
@@ -380,53 +1036,6 @@
             const [activeCategory, setActiveCategory] = useState('');
             const [mobileOpen, setMobileOpen] = useState(false);
             const [modal, setModal] = useState(null);
-			// --- [Start] 訂單修改核心邏輯 (請插入在此) ---
-            const [tempSelectorData, setTempSelectorData] = useState({ step: 'menu', selectedProduct: null, qty: 1, variant: null, addons: [], sideGroups: {}, set: null, setChoices: {}, note: '' });
-
-            // 重新計算總金額 (排除已刪除/劃掉的項目)
-            const recalculateOrderTotal = (items, originalDiscount = 0) => {
-                const subtotal = items.reduce((sum, item) => {
-                    if (item.isCanceled) return sum; // 劃掉的不算錢
-                    return sum + (item.totalPrice || 0);
-                }, 0);
-                return Math.max(0, subtotal - originalDiscount);
-            };
-
-            // 執行訂單變更 (刪除、劃掉、新增)
-            const handleModifyOrderItem = async (orderId, action, payload) => {
-                const order = orders.find(o => o.id === orderId);
-                if (!order) return;
-                let newItems = [...(order.items || [])];
-                
-                if (action === 'delete') {
-                    newItems = newItems.filter((_, idx) => idx !== payload.index); // 物理刪除
-                } else if (action === 'toggle_cancel') {
-                    const item = newItems[payload.index];
-                    newItems[payload.index] = { ...item, isCanceled: !item.isCanceled }; // 劃掉
-                } else if (action === 'add') {
-                    newItems.push({ ...payload.newItem, id: Date.now() }); // 新增
-                }
-
-                const newTotal = recalculateOrderTotal(newItems, order.discountAmount || 0);
-                
-                try {
-                    await dbOp('update', 'orders', orderId, { items: newItems, totalPrice: newTotal });
-                    // 即時更新當前 Modal 顯示
-                    if (modal && modal.data && modal.data.id === orderId) {
-                        setModal(prev => ({ ...prev, data: { ...prev.data, items: newItems, totalPrice: newTotal } }));
-                    }
-                } catch (e) { console.error(e); alert('更新失敗'); }
-            };
-
-            const handleUpdatePickupInfo = async (orderId, date, time) => {
-                try {
-                    await dbOp('update', 'orders', orderId, { 'userInfo.pickupDate': date, 'userInfo.pickupTime': time });
-                    if (modal && modal.data) setModal(prev => ({ ...prev, data: { ...prev.data, userInfo: { ...prev.data.userInfo, pickupDate: date, pickupTime: time } } }));
-                    alert('時間已更新');
-                    handlePopModal();
-                } catch (e) { alert('更新失敗'); }
-            };
-            // --- [End] 訂單修改核心邏輯 ---
             const [categories, setCategories] = useState([]);
             const [products, setProducts] = useState([]);
             const [addons, setAddons] = useState([]);
@@ -436,9 +1045,7 @@
 			const [members, setMembers] = useState([]); // 儲存會員清單
             const [coupons, setCoupons] = useState([]);
             const [settings, setSettings] = useState({ statusMode: 'auto', openTime: '06:00', closeTime: '13:30', phone: '', address: '', mapsUrl: '', closedDays: [], announcements: ['', '', ''], specialDates: [], productTags: [], cloudinaryCloudName: '', cloudinaryUploadPreset: '', materialGroups: [], addonGroups: [], liffId: '', liffIdBrowse: '' });
-            
-			
-			
+
             // --- [訂單管理核心邏輯：狀態與過濾] ---
             const [orderFilter, setOrderFilter] = useState('today'); 
             const [subFilter, setSubFilter] = useState('all');       
@@ -1068,7 +1675,21 @@
 
             // Order Status Update
             const handleUpdateOrderStatus = async (orderId, newStatus) => {
-                await dbOp('update', 'orders', orderId, { status: newStatus });
+                try {
+                    // 1. 更新資料庫
+                    await dbOp('update', 'orders', orderId, { status: newStatus });
+                    
+                    // 2. [Fix] 如果當前 Modal 正好開著這筆訂單，同步更新 Modal 的狀態，讓按鈕即時變化
+                    if (modal && modal.type === 'edit_order' && modal.data.id === orderId) {
+                        setModal(prev => ({
+                            ...prev,
+                            data: { ...prev.data, status: newStatus }
+                        }));
+                    }
+                } catch (e) {
+                    console.error("Status update failed:", e);
+                    alert("更新失敗，請檢查網路");
+                }
             };
 			
 			// [Req] 批量派發優惠券核心邏輯
@@ -1305,7 +1926,29 @@
                                                             )}
                                                             {order.status === 'confirmed' && <button onClick={(e)=>{e.stopPropagation(); handleUpdateOrderStatus(order.id, 'preparing');}} className="col-span-2 py-4 bg-orange-500 text-white font-[1000] text-sm tracking-widest hover:bg-orange-600 transition-colors shadow-inner">開始製作</button>}
                                                             {order.status === 'preparing' && <button onClick={(e)=>{e.stopPropagation(); handleUpdateOrderStatus(order.id, 'ready');}} className="col-span-2 py-4 bg-emerald-500 text-white font-[1000] text-sm tracking-widest hover:bg-emerald-600 transition-colors shadow-inner">製作完成</button>}
-                                                            {order.status === 'ready' && <button onClick={(e)=>{e.stopPropagation(); handleUpdateOrderStatus(order.id, 'completed');}} className="col-span-2 py-4 bg-[#5B2274] text-white font-[1000] text-sm tracking-widest hover:bg-[#4a1b5e] transition-colors shadow-inner">完成取餐</button>}
+                                                            {order.status === 'ready' && (() => {
+                                                                // [Fix] 列表卡片增加核銷檢查邏輯
+                                                                const hasPointReward = !!order.usePointReward || order.discountApplied === 'loyalty';
+                                                                const isPointVerified = order.verified === true;
+                                                                const canComplete = !hasPointReward || isPointVerified;
+                                                                
+                                                                return (
+                                                                    <button 
+                                                                        onClick={(e)=>{
+                                                                            e.stopPropagation(); 
+                                                                            if (!canComplete) {
+                                                                                // 如果未核銷，點擊時彈出提示或僅阻止完成
+                                                                                alert('此訂單包含集點優惠，請點擊卡片進入詳情進行核銷！');
+                                                                                return;
+                                                                            }
+                                                                            handleUpdateOrderStatus(order.id, 'completed');
+                                                                        }} 
+                                                                        className={`col-span-2 py-4 font-[1000] text-sm tracking-widest transition-colors shadow-inner flex items-center justify-center gap-2 ${canComplete ? 'bg-[#5B2274] text-white hover:bg-[#4a1b5e]' : 'bg-slate-300 text-white cursor-not-allowed'}`}
+                                                                    >
+                                                                        {canComplete ? '完成取餐' : '待核銷 (請點入)'}
+                                                                    </button>
+                                                                );
+                                                            })()}
                                                         </div>
                                                     )}
                                                 </div>
@@ -1948,243 +2591,251 @@
 
                     
 					
+					
 					{/* Modals & Drawers */}
                     {modal && (
-                        // [Fix] 將 'member_detail' 加入到底部抽屜模式 (items-end p-0)
-                        <div className={`fixed inset-0 z-[100] flex justify-center ${['edit_order', 'member_detail', 'manage_order_items', 'admin_product_selector', 'admin_product_config', 'edit_pickup_info'].includes(modal.type) ? 'items-end p-0' : 'items-center p-4'}`}>
+                        <div className={`fixed inset-0 z-[100] flex justify-center ${['edit_order', 'member_detail', 'edit_cart'].includes(modal.type) ? 'items-end p-0' : 'items-center p-4'}`}>
                             <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setModal(null)} />
                             
-							{/* [Step 3] 訂單詳情頁 - 修正層級與樣式 */}
-                            {/* [Req] 訂單詳情頁 - 白色簡潔版 (字體加粗/標題靠左) */}
+                            {/* 1. 訂單詳情 (Order Detail) */}
                             {modal.type === 'edit_order' ? (
                                 <div className="bg-slate-50 w-full max-w-2xl mt-auto rounded-t-[2rem] shadow-[0_-20px_60px_-15px_rgba(0,0,0,0.3)] relative z-10 flex flex-col overflow-hidden animate-slide-up" style={{height: '92vh'}}>
                                     {(() => {
                                         const st = STATUS_STYLE[modal.data.status] || STATUS_STYLE.pending;
-                                        // 日期與類型處理
                                         const pickupDateRaw = modal.data.userInfo?.pickupDate;
                                         const displayDate = pickupDateRaw?.replace(/-/g, '/') || '';
                                         const isToday = pickupDateRaw === todayStr;
-                                        // [Req 2] 取得訂單類型
                                         const orderType = modal.data.orderType || 'takeout';
                                         const typeConfig = ORDER_TYPES[orderType] || ORDER_TYPES['takeout'];
                                         
+                                        // 集點卡狀態
+                                        const hasPointReward = !!modal.data.usePointReward || modal.data.discountApplied === 'loyalty';
+                                        const isPointVerified = modal.pointVerified === true || modal.data.verified === true; // 包含已核銷狀態
+
+                                        // [核心] 切換集點優惠狀態 (資料庫連動修正)
+                                        const togglePointReward = async (enable) => {
+                                            const actionName = enable ? "手動套用" : "移除";
+                                            if(!confirm(`確定要【${actionName}】集點卡優惠嗎？\n\n${enable ? '將扣除 $50 並標記為 loyalty' : '將恢復原價並清除標記'}。`)) return;
+
+                                            // 1. 計算金額
+                                            const currentTotal = modal.data.totalPrice;
+                                            const currentDiscount = modal.data.discountAmount || 0;
+                                            // 嘗試還原原價
+                                            const basePrice = modal.data.originalPrice ? modal.data.originalPrice : (currentTotal + currentDiscount);
+                                            
+                                            // 設定折扣 (假設 $50)
+                                            const discountValue = 50; 
+                                            const newDiscount = enable ? discountValue : 0;
+                                            const newTotal = Math.max(0, basePrice - newDiscount);
+
+                                            // 2. 準備寫入資料庫的物件 (關鍵修正)
+                                            const updateData = {
+                                                usePointReward: enable,                // 標記開關
+                                                discountAmount: newDiscount,           // 折扣金額
+                                                discountApplied: enable ? 'loyalty' : null, // 優惠類型標記
+                                                totalPrice: newTotal,                  // 更新後總價
+                                                originalPrice: basePrice               // 確保原價被記錄
+                                            };
+
+                                            try {
+                                                // 3. 寫入 Firestore
+                                                await dbOp('update', 'orders', modal.data.id, updateData);
+                                                
+                                                // 4. 更新 UI
+                                                setModal({ 
+                                                    ...modal, 
+                                                    data: { ...modal.data, ...updateData },
+                                                    // 若開啟優惠，需重置檢核狀態；若移除，則視為已處理
+                                                    pointVerified: enable ? false : true 
+                                                });
+                                                alert(`已${actionName}集點優惠。`);
+                                            } catch(e) {
+                                                console.error(e);
+                                                alert("更新失敗，請檢查網路連線。");
+                                            }
+                                        };
+
                                         return (
                                             <div className="flex flex-col h-full bg-[#F8FAFC] relative">
                                                 {/* Header */}
                                                 <div className={`px-6 py-5 flex justify-between items-center border-b shrink-0 bg-white shadow-sm z-20`}>
                                                     <div className="flex items-center gap-4">
-                                                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner ${st.bg}`}>
-                                                            <Icon name={st.icon} size={24} className={st.text}/>
-                                                        </div>
+                                                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner ${st.bg}`}><Icon name={st.icon} size={24} className={st.text}/></div>
                                                         <div>
                                                             <div className={`text-[10px] font-black uppercase tracking-widest mb-0.5 ${st.text}`}>{st.label}</div>
-                                                            <div className="text-xl font-[1000] text-slate-800 tracking-tighter flex items-center gap-2">
-                                                                <span>#{modal.data.orderId?.slice(-6)}</span>
-                                                                {modal.data.verified && <span className="bg-emerald-100 text-emerald-600 text-[10px] px-2 py-0.5 rounded-full border border-emerald-200">已核銷</span>}
-                                                            </div>
+                                                            <div className="text-xl font-[1000] text-slate-800 tracking-tighter flex items-center gap-2"><span>#{modal.data.orderId?.slice(-6)}</span></div>
                                                         </div>
                                                     </div>
                                                     <button onClick={handlePopModal} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-200 hover:text-slate-600 transition-all"><Icon name="X" size={20}/></button>
                                                 </div>
 
-                                                {/* Content - 底部增加 padding 避免內容被按鈕遮擋 */}
                                                 <div className="flex-1 overflow-y-auto p-4 space-y-6 no-scrollbar pb-32">
-                                                    
-                                                    {/* [Req 2] 顧客資訊卡 - 加入訂單類型標籤 (自取/外送/內用) */}
-                                                    <div className="bg-white rounded-2xl p-6 shadow-[0_4px_20px_-5px_rgba(0,0,0,0.05)] border border-slate-100 flex justify-between items-center relative overflow-hidden">
-                                                        {/* 左側：姓名、電話、訂單類型 */}
+                                                    {/* 顧客資訊 */}
+                                                    <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 flex justify-between items-center relative overflow-hidden">
                                                         <div className="space-y-3 z-10">
                                                             <div className="flex items-center gap-3">
-                                                                <div className="text-3xl font-[1000] text-slate-800 tracking-tight leading-none">
-                                                                    {modal.data.userInfo?.name}
-                                                                </div>
-                                                                {/* 會員按鈕 */}
+                                                                <div className="text-3xl font-[1000] text-slate-800 tracking-tight leading-none">{modal.data.userInfo?.name}</div>
                                                                 {modal.data.customerUid && modal.data.customerUid !== 'guest' && (
-                                                                    <button 
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            const memberData = members.find(m => m.id === modal.data.customerUid);
-                                                                            if(memberData) handlePushModal({ type: 'member_detail', data: memberData }); // 改用 Push
-                                                                            else alert('查無此會員資料');
-                                                                        }}
-                                                                        className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-[#5B2274] hover:text-white transition-all shadow-sm flex items-center justify-center active:scale-90"
-                                                                        title="查看會員"
-                                                                    >
-                                                                        <Icon name="User" size={16} />
-                                                                    </button>
+                                                                    <button onClick={(e) => { e.stopPropagation(); const memberData = members.find(m => m.id === modal.data.customerUid); if(memberData) handlePushModal({ type: 'member_detail', data: memberData }); else alert('查無此會員資料'); }} className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-[#5B2274] hover:text-white transition-all shadow-sm flex items-center justify-center active:scale-90"><Icon name="User" size={16} /></button>
                                                                 )}
                                                             </div>
                                                             <div className="flex items-center gap-3">
-                                                                {/* 顯示訂單類型標籤 */}
-                                                                <span className={`text-[10px] font-black px-2 py-1 rounded-lg border flex items-center gap-1 ${typeConfig.color}`}>
-                                                                    <Icon name={typeConfig.icon} size={12}/> {typeConfig.label}
-                                                                </span>
-                                                                <a href={`tel:${modal.data.userInfo?.phone}`} className="inline-flex items-center gap-1 text-sm font-bold text-slate-400 hover:text-blue-600 transition-colors">
-                                                                    <Icon name="Phone" size={14} /> {modal.data.userInfo?.phone}
-                                                                </a>
+                                                                <span className={`text-[10px] font-black px-2 py-1 rounded-lg border flex items-center gap-1 ${typeConfig.bg} ${typeConfig.text} ${typeConfig.border}`}><Icon name={typeConfig.icon} size={12}/> {typeConfig.label}</span>
+                                                                <a href={`tel:${modal.data.userInfo?.phone}`} className="inline-flex items-center gap-1 text-sm font-bold text-slate-400 hover:text-blue-600 transition-colors"><Icon name="Phone" size={14} /> {modal.data.userInfo?.phone}</a>
                                                             </div>
-                                                            {/* 若為外送，顯示地址 */}
-                                                            {orderType === 'delivery' && modal.data.userInfo?.address && (
-                                                                <div className="text-xs font-bold text-slate-500 bg-slate-50 px-2 py-1 rounded border border-slate-100 mt-1 flex items-start gap-1">
-                                                                    <Icon name="MapPin" size={12} className="mt-0.5 shrink-0"/> {modal.data.userInfo.address}
-                                                                </div>
-                                                            )}
+                                                            {orderType === 'delivery' && modal.data.userInfo?.address && (<div className="text-xs font-bold text-slate-500 bg-slate-50 px-2 py-1 rounded border border-slate-100 mt-1 flex items-start gap-1"><Icon name="MapPin" size={12} className="mt-0.5 shrink-0"/> {modal.data.userInfo.address}</div>)}
                                                         </div>
-
-                                                        {/* 右側：取餐時間 (修改後：加入編輯按鈕) */}
-                                                        <div className="flex flex-col items-start pl-8 border-l-2 border-slate-100 border-dashed relative group/time">
-                                                            <div className="flex items-center gap-2">
-                                                                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">預計時間</div>
-                                                                <button onClick={() => handlePushModal({ type: 'edit_pickup_info', data: modal.data })} className="w-5 h-5 rounded-full bg-slate-100 text-slate-400 hover:bg-[#5B2274] hover:text-white flex items-center justify-center transition-all">
-                                                                    <Icon name="Edit3" size={10} />
-                                                                </button>
-                                                            </div>
+                                                        <div className="flex flex-col items-start pl-8 border-l-2 border-slate-100 border-dashed">
+                                                            <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">預計時間</div>
                                                             <div className={`text-5xl font-[1000] tracking-tighter leading-none ${modal.data.userInfo?.pickupTime==='ASAP'?'text-red-500 animate-pulse':'text-slate-900'}`}>{modal.data.userInfo?.pickupTime}</div>
                                                             <div className={`text-xs font-black mt-2 px-2 py-0.5 rounded ${isToday ? 'text-slate-400 bg-slate-100' : 'text-red-500 bg-red-50'}`}>{isToday ? '今日' : displayDate}</div>
                                                         </div>
                                                     </div>
 
-                                                    {/* 訂單內容 (保持不變) */}
-                                                    <div className="bg-white rounded-2xl shadow-[0_4px_20px_-5px_rgba(0,0,0,0.05)] border border-slate-100 overflow-hidden p-5">
-                                                        <div className="flex items-center justify-between mb-6 border-b border-slate-100 pb-3">
-                                                            <div className="flex items-center gap-2">
-                                                                <Icon name="Utensils" size={20} className="text-[#5B2274]" />
-                                                                <h3 className="text-lg font-[900] text-slate-800">餐點明細</h3>
-                                                            </div>
-                                                            {!['completed', 'cancelled'].includes(modal.data.status) && (
-                                                                <button onClick={() => handlePushModal({ type: 'manage_order_items', data: modal.data })} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 text-slate-600 rounded-lg text-xs font-bold hover:bg-[#5B2274] hover:text-white transition-all shadow-sm">
-                                                                    <Icon name="Settings2" size={14} /> 變更內容
-                                                                </button>
-                                                            )}
+                                                    {/* 變更訂單按鈕 */}
+                                                    {!['completed', 'cancelled'].includes(modal.data.status) && (
+                                                        <div className="mb-4">
+                                                            <button onClick={() => setModal({ type: 'edit_cart', data: JSON.parse(JSON.stringify(modal.data)) })} className="w-full py-4 bg-white border-2 border-dashed border-purple-200 text-[#5B2274] font-[900] rounded-2xl hover:bg-purple-50 hover:border-[#5B2274] transition-all flex items-center justify-center gap-2 shadow-sm animate-pulse"><Icon name="Edit3" size={20}/> 變更訂單內容 (補單/改量)</button>
                                                         </div>
+                                                    )}
+
+                                                    {/* 餐點明細 */}
+                                                    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden p-5">
+                                                        <div className="flex items-center gap-2 mb-6 border-b border-slate-100 pb-3"><Icon name="Utensils" size={20} className="text-[#5B2274]" /><h3 className="text-lg font-[900] text-slate-800">餐點明細</h3></div>
                                                         
+                                                        {/* 列表渲染 (保持不變) */}
                                                         <div className="space-y-8"> 
                                                             {modal.data.items?.map((item, idx) => (
-                                                                <div key={idx} className={`flex gap-4 items-start relative ${item.isCanceled ? 'opacity-40 grayscale select-none' : ''}`}>
-                                                                    {/* 刪除線效果 */}
-                                                                    {item.isCanceled && <div className="absolute inset-x-0 top-1/2 h-0.5 bg-slate-800/20 z-10 pointer-events-none"></div>}
-                                                                    
+                                                                <div key={idx} className="flex gap-4 items-start">
                                                                     <div className="w-9 h-9 bg-slate-100 rounded-lg flex items-center justify-center text-slate-600 font-[900] text-sm shrink-0 mt-0.5">{item.qty}x</div>
-                                                                    
-                                                                    {/* ... (原本的中間內容保持不變) ... */}
                                                                     <div className="flex-1 min-w-0">
-                                                                        <div className="flex justify-between items-start mb-1">
-                                                                            <div className="font-[900] text-slate-800 text-lg leading-tight">{item.name}</div>
-                                                                            <div className="font-[900] text-slate-800 text-lg ml-3">
-                                                                                ${item.totalPrice}
-                                                                                {item.isCanceled && <span className="block text-[9px] text-red-500 text-right">已取消</span>}
-                                                                            </div>
-                                                                        </div>
-                                                                        {/* ... (規格、附餐、套餐、備註渲染代碼保持原樣) ... */}
-                                                                        {(item.variantName || (item.addons && item.addons.length > 0)) && (
-                                                                            <div className="text-sm font-bold text-slate-400 mb-3">
-                                                                                {[item.variantName, ...(item.addons?.map(a => a.name) || [])].filter(Boolean).join(' / ')}
-                                                                            </div>
-                                                                        )}
-                                                                        {/* ... (item.sideGroups, item.set, item.note 的渲染代碼，請保留原狀不要刪除) ... */}
-                                                                        {/* 此處為了節省篇幅省略重複代碼，請確保 admin.html 原本顯示 SideGroups/Sets 的邏輯都在 */}
-                                                                         {item.sideGroups && Object.values(item.sideGroups).length > 0 && (
+                                                                        <div className="flex justify-between items-start mb-1"><div className="font-[900] text-slate-800 text-lg leading-tight">{item.name}</div><div className="font-[900] text-slate-800 text-lg ml-3">${item.totalPrice}</div></div>
+                                                                        {(item.variantName || (item.addons && item.addons.length > 0)) && (<div className="text-sm font-bold text-slate-400 mb-3">{[item.variantName, ...(item.addons?.map(a => a.name) || [])].filter(Boolean).join(' / ')}</div>)}
+                                                                        
+                                                                        {item.sideGroups && Object.values(item.sideGroups).some(s=>s.product || s.name) && (
                                                                             <div className="bg-[#FAF5FF] rounded-xl p-4 mb-3 space-y-3">
                                                                                 <div className="text-sm font-[900] text-[#5B2274]">附餐：</div>
-                                                                                <div className="space-y-2">
-                                                                                    {Object.values(item.sideGroups).map((side, si) => (
-                                                                                        <div key={si}>
-                                                                                            <div className="flex items-start text-sm font-bold text-slate-700">
-                                                                                                <span className="mr-1.5 text-slate-400">•</span><span>{side.name}</span>
-                                                                                            </div>
-                                                                                            {(side.variantName || (side.addons && side.addons.length > 0)) && (
-                                                                                                <div className="text-xs font-bold text-slate-400 pl-4 mt-0.5">
-                                                                                                    {[side.variantName, ...(side.addons?.map(a => a.name) || [])].filter(Boolean).join(' / ')}
-                                                                                                </div>
-                                                                                            )}
-                                                                                        </div>
-                                                                                    ))}
-                                                                                </div>
+                                                                                <div className="space-y-2">{Object.values(item.sideGroups).map((side, si) => (side.product || side.name) && (<div key={si}><div className="flex items-start text-sm font-bold text-slate-700"><span className="mr-1.5 text-slate-400">•</span><span>{side.product?.name || side.name}</span></div>{(side.variantName || (side.addons && side.addons.length > 0)) && (<div className="text-xs font-bold text-slate-400 pl-4 mt-0.5">{[side.variantName, ...(side.addons?.map(a => a.name) || [])].filter(Boolean).join(' / ')}</div>)}</div>))}</div>
                                                                             </div>
                                                                         )}
+                                                                        
                                                                         {item.set && (
                                                                             <div className="bg-[#FAF5FF] rounded-xl p-4 mb-3 space-y-3">
                                                                                 <div className="text-sm font-[900] text-[#5B2274]">升級套餐：{item.set.name}</div>
-                                                                                <div className="space-y-2">
-                                                                                    {item.set.contents?.map((c, ci) => {
-                                                                                        const choice = item.setChoices?.[ci];
-                                                                                        let cName = '', cDetails = [];
-                                                                                        if (choice) { cName = choice.name; if(choice.variantName) cDetails.push(choice.variantName); if(choice.addons) cDetails.push(...choice.addons.map(a=>a.name)); } 
-                                                                                        else if (c.type === 'fixed') { const fp = products.find(p => p.id === c.productId); cName = fp ? fp.name : '固定餐點'; if(c.variantName) cDetails.push(c.variantName); } 
-                                                                                        else { return null; }
-                                                                                        return (
-                                                                                            <div key={ci}>
-                                                                                                <div className="flex items-start text-sm font-bold text-slate-700"><span className="mr-1.5 text-slate-400">•</span><span>{cName}</span></div>
-                                                                                                {cDetails.length > 0 && <div className="text-xs font-bold text-slate-400 pl-4 mt-0.5">{cDetails.join(' / ')}</div>}
-                                                                                            </div>
-                                                                                        );
-                                                                                    })}
-                                                                                </div>
+                                                                                <div className="space-y-2">{item.set.contents?.map((c, ci) => { const choice = item.setChoices?.[ci] || item.setChoices?.[c.id]; let cName = choice?.product?.name || choice?.name || (c.type==='fixed' ? '固定餐點' : null); if(!cName) return null; return (<div key={ci}><div className="flex items-start text-sm font-bold text-slate-700"><span className="mr-1.5 text-slate-400">•</span><span>{cName}</span></div>{((choice?.variantName) || (choice?.addons?.length > 0)) && (<div className="text-xs font-bold text-slate-400 pl-4 mt-0.5">{[choice?.variantName, ...(choice?.addons?.map(a => a.name) || [])].filter(Boolean).join(' / ')}</div>)}</div>); })}</div>
                                                                             </div>
                                                                         )}
-                                                                        {item.note && (
-                                                                            <div className="bg-[#FFF7ED] rounded-xl p-3 text-[#EA580C] text-sm font-bold flex items-baseline gap-2 leading-relaxed">
-                                                                                <span className="shrink-0 opacity-70 text-xs">備註：</span>
-                                                                                <span>{item.note}</span>
-                                                                            </div>
-                                                                        )}
+                                                                        
+                                                                        {item.note && (<div className="bg-[#FFF7ED] rounded-xl p-3 text-[#EA580C] text-sm font-bold flex items-baseline gap-2 leading-relaxed"><span className="shrink-0 opacity-70 text-xs">備註：</span><span>{item.note}</span></div>)}
                                                                     </div>
                                                                 </div>
                                                             ))}
                                                         </div>
-                                                        
-                                                        <div className="mt-8 pt-6 border-t border-slate-100 space-y-2">
+
+                                                        {/* [Modified] 集點卡管理專區 */}
+                                                        <div className="mt-8 border-t border-slate-100 pt-6">
+                                                            {hasPointReward ? (
+                                                                // 情境 A: 顧客已勾選
+                                                                <div className="bg-rose-50 border-2 border-rose-100 rounded-2xl p-4 animate-pulse-slow">
+                                                                    <div className="flex justify-between items-start mb-3">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <div className="bg-rose-500 text-white p-1.5 rounded-lg"><Icon name="Ticket" size={16}/></div>
+                                                                            <h4 className="font-[1000] text-rose-600 text-base">顧客使用集點卡優惠</h4>
+                                                                        </div>
+                                                                        {/* 移除按鈕 */}
+                                                                        <button onClick={() => togglePointReward(false)} className="text-[10px] font-bold text-rose-400 bg-white border border-rose-200 px-3 py-1.5 rounded-lg hover:bg-rose-100 hover:text-rose-600 transition-colors flex items-center gap-1">
+                                                                            <Icon name="X" size={12}/> 資格不符？移除
+                                                                        </button>
+                                                                    </div>
+                                                                    {/* 核銷勾選 */}
+                                                                    <label className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${isPointVerified ? 'bg-rose-500 border-rose-500 text-white shadow-lg shadow-rose-200 transform scale-[1.02]' : 'bg-white border-rose-200 text-slate-500 hover:border-rose-300'}`}>
+                                                                        <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${isPointVerified ? 'border-white bg-white/20' : 'border-slate-300 bg-slate-50'}`}>
+                                                                            {isPointVerified && <Icon name="Check" size={16} className="text-white"/>}
+                                                                        </div>
+                                                                        <input type="checkbox" className="hidden" checked={isPointVerified} onChange={(e) => setModal({...modal, pointVerified: e.target.checked})} />
+                                                                        <div>
+                                                                            <div className={`font-[900] ${isPointVerified?'text-white':'text-slate-700'}`}>確認核銷</div>
+                                                                            <div className={`text-xs font-bold ${isPointVerified?'text-white/80':'text-slate-400'}`}>我已回收紙本卡 / 蓋章</div>
+                                                                        </div>
+                                                                    </label>
+                                                                </div>
+                                                            ) : (
+                                                                // 情境 B: 顧客未勾選 (顯示手動補登按鈕)
+                                                                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex justify-between items-center">
+                                                                    <div className="flex items-center gap-2 text-slate-400">
+                                                                        <Icon name="Ticket" size={18}/>
+                                                                        <span className="font-bold text-sm">未套用集點優惠</span>
+                                                                    </div>
+                                                                    <button onClick={() => togglePointReward(true)} className="text-xs font-[900] text-[#5B2274] bg-white border border-purple-200 px-4 py-2 rounded-xl hover:bg-purple-50 transition-all flex items-center gap-1 shadow-sm">
+                                                                        <Icon name="Plus" size={14}/> 手動套用優惠
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        {/* 金額統計區 */}
+                                                        <div className="mt-6 space-y-2">
                                                             <div className="flex justify-between items-center text-slate-400 font-bold text-xs"><span>小計</span><span>${modal.data.originalPrice || modal.data.totalPrice}</span></div>
-                                                            {modal.data.discountAmount > 0 && <div className="flex justify-between items-center text-red-400 font-bold text-xs"><span>折扣</span><span>-${modal.data.discountAmount}</span></div>}
-                                                            <div className="flex justify-between items-center pt-3 mt-2 border-t border-slate-200 border-dashed">
-                                                                <span className="text-sm font-black text-slate-700 uppercase tracking-widest">總計</span>
-                                                                <span className="text-2xl font-[1000] text-[#5B2274]">${modal.data.totalPrice}</span>
-                                                            </div>
+                                                            {modal.data.discountAmount > 0 && (<div className="flex justify-between items-center text-red-500 font-bold text-xs"><div className="flex items-center gap-1.5">{modal.data.organizationId ? (<><Icon name="Building2" size={14} className="text-blue-500"/><span className="text-blue-600">特約：{modal.data.organizationName || '合作機構'}{modal.data.discountContent ? ` (${modal.data.discountContent})` : ''}</span></>) : modal.data.discountApplied === 'loyalty' ? (<><Icon name="Crown" size={14} className="text-amber-500"/><span className="text-amber-600">集點卡回饋</span></>) : (<><Icon name="Ticket" size={14}/><span>優惠券 ({modal.data.discountApplied || '未知'})</span></>)}</div><span>-${modal.data.discountAmount}</span></div>)}
+                                                            <div className="flex justify-between items-center pt-3 mt-2 border-t border-slate-200 border-dashed"><span className="text-sm font-black text-slate-700 uppercase tracking-widest">總計金額</span><span className="text-2xl font-[1000] text-[#5B2274] tracking-tighter">${modal.data.totalPrice}</span></div>
                                                         </div>
                                                     </div>
 
                                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                         <div className="bg-amber-50/80 rounded-2xl p-4 border border-amber-100/50 shadow-sm flex flex-col gap-2 relative group focus-within:bg-amber-50 focus-within:ring-2 focus-within:ring-amber-200 transition-all">
-                                                            <div className="flex justify-between items-center">
-                                                                <div className="flex items-center gap-2 text-[10px] font-black text-amber-700 uppercase tracking-widest"><Icon name="Star" size={12}/> 顧客永久註記</div>
-                                                                <button onClick={saveCustomerNote} className="bg-amber-400 text-white p-1.5 rounded-lg shadow-sm hover:scale-110 active:scale-90 transition-all opacity-0 group-focus-within:opacity-100"><Icon name="Save" size={14}/></button>
-                                                            </div>
+                                                            <div className="flex justify-between items-center"><div className="flex items-center gap-2 text-[10px] font-black text-amber-700 uppercase tracking-widest"><Icon name="Star" size={12}/> 顧客永久註記 (跨單連動)</div><button onClick={saveCustomerNote} className="bg-amber-400 text-white p-1.5 rounded-lg shadow-sm hover:scale-110 active:scale-90 transition-all opacity-0 group-focus-within:opacity-100"><Icon name="Save" size={14}/></button></div>
                                                             <textarea className="w-full bg-transparent text-sm font-bold text-slate-700 resize-none outline-none placeholder:text-amber-700/30" rows="3" value={customerNote} onChange={(e) => setCustomerNote(e.target.value)} placeholder="輸入關於此客人的習慣 (例如: 不吃香菜)..."></textarea>
                                                         </div>
+                                                        {/* [Fix] 移除訂單核銷按鈕，僅保留內部備註 */}
                                                         <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex flex-col gap-3">
-                                                            <div className="flex justify-between items-center border-b border-slate-100 pb-2">
-                                                                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1"><Icon name="CheckSquare" size={12}/> 訂單核銷</div>
-                                                                <ToggleSwitch checked={modal.data.verified} onChange={(c)=>setModal({...modal, data:{...modal.data, verified:c}})} />
-                                                            </div>
-                                                            <div className="flex items-center gap-2 bg-slate-50 rounded-xl px-3 py-2 border border-slate-200 focus-within:border-slate-400 transition-colors">
-                                                                <Icon name="Tag" size={14} className="text-slate-400"/>
-                                                                <input className="flex-1 bg-transparent border-none text-xs font-bold text-slate-700 outline-none placeholder:text-slate-400" value={modal.data.adminNote || ''} onChange={e => setModal({...modal, data: {...modal.data, adminNote: e.target.value}})} placeholder="填寫內部備註..." />
-                                                            </div>
+                                                            <div className="flex justify-between items-center border-b border-slate-100 pb-2"><div className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1"><Icon name="FileText" size={12}/> 內部備註</div></div>
+                                                            <div className="flex items-center gap-2 bg-slate-50 rounded-xl px-3 py-2 border border-slate-200 focus-within:border-slate-400 transition-colors"><Icon name="Tag" size={14} className="text-slate-400"/><input className="flex-1 bg-transparent border-none text-xs font-bold text-slate-700 outline-none placeholder:text-slate-400" value={modal.data.adminNote || ''} onChange={e => setModal({...modal, data: {...modal.data, adminNote: e.target.value}})} placeholder="填寫內部備註..." /></div>
                                                         </div>
                                                     </div>
-                                                    <div className="text-center pt-4">
-                                                        <button onClick={() => { if(confirm("確定永久刪除？")) { dbOp('delete', 'orders', modal.data.id); setModal(null); }}} className="text-[10px] font-bold text-slate-300 hover:text-red-500 hover:bg-red-50 px-4 py-2 rounded-full transition-all flex items-center justify-center gap-2 mx-auto"><Icon name="Trash2" size={12}/> 永久刪除此訂單</button>
-                                                    </div>
+                                                    <div className="text-center pt-8 pb-12"><button onClick={() => { if(confirm("確定永久刪除？")) { dbOp('delete', 'orders', modal.data.id); setModal(null); }}} className="text-[10px] font-bold text-slate-300 hover:text-red-500 underline tracking-widest">永久刪除此訂單</button></div>
                                                 </div>
-                                                
-                                                {/* [Req 1] 底部按鈕 - 修正間隙問題 (pb-[env(...)]) */}
+
                                                 {!['completed', 'cancelled'].includes(modal.data.status) && (
                                                     <div className="grid grid-cols-2 divide-x divide-slate-100 border-t border-slate-100 bg-slate-50 absolute bottom-0 w-full z-30 shadow-[0_-10px_30px_-10px_rgba(0,0,0,0.1)] pb-[env(safe-area-inset-bottom)]">
-                                                        {modal.data.status === 'pending' && (
-                                                            <>
-                                                                <button onClick={() => { if(confirm('拒絕？')) handleUpdateOrderStatus(modal.data.id, 'cancelled'); }} className="py-4 text-slate-400 font-bold text-sm hover:bg-red-50 hover:text-red-500 transition-colors flex items-center justify-center gap-2">拒絕</button>
-                                                                <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'confirmed')} className="py-4 bg-blue-600 text-white font-[1000] text-sm tracking-widest hover:bg-blue-700 transition-colors shadow-inner flex items-center justify-center gap-2">確認接單</button>
-                                                            </>
-                                                        )}
+                                                        {modal.data.status === 'pending' && (<><button onClick={() => { if(confirm('拒絕？')) handleUpdateOrderStatus(modal.data.id, 'cancelled'); }} className="py-4 text-slate-400 font-bold text-sm hover:bg-red-50 hover:text-red-500 transition-colors flex items-center justify-center gap-2">拒絕</button><button onClick={() => handleUpdateOrderStatus(modal.data.id, 'confirmed')} className="py-4 bg-blue-600 text-white font-[1000] text-sm tracking-widest hover:bg-blue-700 transition-colors shadow-inner flex items-center justify-center gap-2">確認接單</button></>)}
                                                         {modal.data.status === 'confirmed' && <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'preparing')} className="col-span-2 py-4 bg-orange-500 text-white font-[1000] text-sm tracking-widest hover:bg-orange-600 transition-colors shadow-inner">開始製作餐點</button>}
                                                         {modal.data.status === 'preparing' && <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'ready')} className="col-span-2 py-4 bg-emerald-500 text-white font-[1000] text-sm tracking-widest hover:bg-emerald-600 transition-colors shadow-inner">製作完成</button>}
-                                                        {modal.data.status === 'ready' && <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'completed')} className="col-span-2 py-4 bg-[#5B2274] text-white font-[1000] text-sm tracking-widest hover:bg-[#4a1b5e] transition-colors shadow-inner">完成取餐</button>}
+                                                        {/* 底部按鈕鎖定邏輯 */}
+                                                        {modal.data.status === 'ready' && (
+                                                            <button 
+                                                                disabled={hasPointReward && !isPointVerified} 
+                                                                onClick={() => handleUpdateOrderStatus(modal.data.id, 'completed')} 
+                                                                className={`col-span-2 py-4 font-[1000] text-sm tracking-widest transition-colors shadow-inner ${hasPointReward && !isPointVerified ? 'bg-slate-300 text-white cursor-not-allowed' : 'bg-[#5B2274] text-white hover:bg-[#4a1b5e]'}`}
+                                                            >
+                                                                {hasPointReward && !isPointVerified ? '請先核銷集點卡' : '完成取餐'}
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 )}
                                             </div>
                                         );
                                     })()}
                                 </div>
+                            ) : modal.type === 'edit_cart' ? (
+                                <EditCartDrawer 
+                                    order={modal.data} 
+                                    products={products} 
+                                    categories={categories}
+                                    sets={sets}
+                                    addons={addons}
+                                    settings={settings}
+                                    materials={materials}
+                                    onClose={() => handlePopModal()}
+                                    onSave={async (updatedOrder) => {
+                                        try {
+                                            const { db, appId } = window.firebase;
+                                            const { doc, updateDoc } = window.firestore;
+                                            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', updatedOrder.id), updatedOrder);
+                                            setModal({ type: 'edit_order', data: updatedOrder });
+                                            alert('✅ 訂單變更已儲存！');
+                                        } catch(e) { console.error(e); alert('儲存失敗：' + e.message); }
+                                    }}
+                                />
                             ) : modal.type === 'org_editor' ? (
                                 <div className="bg-slate-50 w-full max-w-4xl rounded-[2.5rem] shadow-2xl relative z-10 flex flex-col overflow-hidden animate-scale-in">
                                     {/* Header */}
@@ -2955,7 +3606,29 @@
                                         );
                                     })()}
                                 </div>
-                            ) : (
+                            ) : modal.type === 'edit_cart' ? (
+                                <EditCartDrawer 
+                                    order={modal.data} 
+                                    products={products}
+                                    categories={categories}
+                                    sets={sets}          // [New] 傳入套餐資料
+                                    addons={addons}      // [New] 傳入客製化選項資料
+                                    settings={settings}  // [New] 傳入設定(用於判斷選項群組限制)
+                                    onClose={() => setModal({ type: 'edit_order', data: modal.data })}
+                                    onSave={async (updatedOrder) => {
+                                        try {
+                                            const { db, appId } = window.firebase;
+                                            const { doc, updateDoc } = window.firestore;
+                                            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', updatedOrder.id), updatedOrder);
+                                            setModal({ type: 'edit_order', data: updatedOrder });
+                                            alert('✅ 訂單變更已儲存！');
+                                        } catch(e) {
+                                            console.error(e);
+                                            alert('儲存失敗：' + e.message);
+                                        }
+                                    }}
+                                />
+							) : (
 								
 								/* 原本的其他 Modal (如產品、標籤、營運設定) 仍維持中間白色框框 */
 								<div className="bg-white w-full max-w-xl max-h-[90vh] rounded-2xl shadow-2xl relative z-10 flex flex-col overflow-hidden animate-fade-in">
@@ -3649,339 +4322,6 @@
 												</div>
 											</div>
 										)}
-										
-										{modal.type === 'edit_pickup_info' && (
-											<div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl relative z-20 flex flex-col p-6 animate-scale-in">
-												<div className="flex justify-between items-center mb-6">
-													<h3 className="text-lg font-[1000] text-slate-800">修改取餐時間</h3>
-													<button onClick={handlePopModal} className="w-8 h-8 rounded-full bg-slate-50 text-slate-400 hover:bg-slate-100 flex items-center justify-center"><Icon name="X" size={18}/></button>
-												</div>
-												<div className="space-y-4">
-													<div className="space-y-1">
-														<label className="text-xs font-bold text-slate-500">日期</label>
-														<input type="date" id="edit_date" defaultValue={modal.data.userInfo?.pickupDate} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 outline-none focus:ring-2 focus:ring-[#5B2274]" />
-													</div>
-													<div className="space-y-1">
-														<label className="text-xs font-bold text-slate-500">時間</label>
-														<div className="flex gap-2">
-															<input type="time" id="edit_time" defaultValue={modal.data.userInfo?.pickupTime === 'ASAP' ? '' : modal.data.userInfo?.pickupTime} className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-slate-700 outline-none focus:ring-2 focus:ring-[#5B2274]" />
-															<button onClick={() => document.getElementById('edit_time').value = ''} className="px-4 rounded-xl border border-slate-200 text-xs font-bold text-slate-500 hover:bg-slate-50">ASAP</button>
-														</div>
-													</div>
-													<button onClick={() => {
-														const d = document.getElementById('edit_date').value;
-														const t = document.getElementById('edit_time').value || 'ASAP';
-														handleUpdatePickupInfo(modal.data.id, d, t);
-													}} className="w-full py-3 bg-[#5B2274] text-white rounded-xl font-bold shadow-lg hover:bg-[#4a1b5e] mt-2">確認修改</button>
-												</div>
-											</div>
-										)}
-
-										{/* [New] 管理訂單品項列表 (Delete/Cancel) */}
-										{modal.type === 'manage_order_items' && (
-											<div className="bg-white w-full max-w-lg max-h-[90vh] rounded-t-[2rem] shadow-[0_-20px_60px_-15px_rgba(0,0,0,0.3)] mt-auto relative z-20 flex flex-col animate-slide-up">
-												<div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white shrink-0">
-													<div>
-														<h3 className="text-xl font-[1000] text-slate-800">變更訂單內容</h3>
-														<p className="text-xs font-bold text-slate-400">點擊項目進行刪除或劃記</p>
-													</div>
-													<button onClick={handlePopModal} className="w-9 h-9 rounded-full bg-slate-50 text-slate-400 hover:bg-slate-100 flex items-center justify-center"><Icon name="X" size={20}/></button>
-												</div>
-												<div className="flex-1 overflow-y-auto p-6 space-y-3 no-scrollbar bg-slate-50/50">
-													{/* 新增按鈕 */}
-													<button onClick={() => {
-														setTempSelectorData({ step: 'menu', selectedProduct: null, qty: 1, variant: null, addons: [], sideGroups: {}, set: null, setChoices: {}, note: '' });
-														handlePushModal({ type: 'admin_product_selector', data: modal.data });
-													}} className="w-full py-4 border-2 border-dashed border-[#5B2274]/30 rounded-2xl text-[#5B2274] font-[900] flex items-center justify-center gap-2 hover:bg-purple-50 transition-all mb-4 bg-white shadow-sm">
-														<div className="w-6 h-6 rounded-full bg-[#5B2274] text-white flex items-center justify-center"><Icon name="Plus" size={16}/></div>
-														新增其他餐點
-													</button>
-
-													{/* 現有列表 */}
-													{modal.data.items?.map((item, idx) => (
-														<div key={idx} className={`bg-white p-4 rounded-xl border shadow-sm flex items-center gap-4 transition-all ${item.isCanceled ? 'opacity-60 grayscale border-slate-200' : 'border-slate-100'}`}>
-															<div className="font-[900] text-slate-400 w-6 text-center">{item.qty}x</div>
-															<div className="flex-1 min-w-0">
-																<div className={`font-bold text-slate-800 ${item.isCanceled ? 'line-through' : ''}`}>{item.name}</div>
-																<div className="text-xs text-slate-400 truncate">
-																	{[item.variantName, ...(item.addons?.map(a => a.name) || [])].filter(Boolean).join('/')}
-																	{item.isCanceled && <span className="text-red-500 font-bold ml-2">(已取消)</span>}
-																</div>
-															</div>
-															<div className="flex items-center gap-2">
-																{/* 劃掉 (Toggle Cancel) */}
-																<button 
-																	onClick={() => handleModifyOrderItem(modal.data.id, 'toggle_cancel', { index: idx })}
-																	className={`p-2 rounded-lg font-bold text-xs flex items-center gap-1 ${item.isCanceled ? 'bg-slate-100 text-slate-500' : 'bg-red-50 text-red-500'}`}
-																>
-																	<Icon name="Ban" size={16}/> {item.isCanceled ? '復原' : '劃掉'}
-																</button>
-																{/* 物理刪除 */}
-																<button 
-																	onClick={() => { if(confirm('確定從訂單中移除此項目？')) handleModifyOrderItem(modal.data.id, 'delete', { index: idx }); }}
-																	className="p-2 rounded-lg bg-slate-100 text-slate-400 hover:bg-red-500 hover:text-white transition-colors"
-																>
-																	<Icon name="Trash2" size={16}/>
-																</button>
-															</div>
-														</div>
-													))}
-												</div>
-											</div>
-										)}
-
-										{/* [New] 新增商品 - 選擇器 (Categories & Product List) */}
-										{modal.type === 'admin_product_selector' && (
-											<div className="fixed inset-0 z-[60] bg-[#F8FAFC] flex flex-col animate-scale-in">
-												{/* 頂部導航列 */}
-												<div className="bg-white px-6 py-4 shadow-sm border-b border-slate-100 flex justify-between items-center shrink-0">
-													<div className="flex items-center gap-3">
-														<div className="bg-[#5B2274] text-white p-2 rounded-lg">
-															<Icon name="PlusCircle" size={24} />
-														</div>
-														<div>
-															<h3 className="text-xl font-[1000] text-slate-800 leading-none">新增訂單品項</h3>
-															<p className="text-xs font-bold text-slate-400 mt-1">請選擇要加入的商品</p>
-														</div>
-													</div>
-													<button 
-														onClick={handlePopModal} 
-														className="w-12 h-12 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800 flex items-center justify-center transition-colors"
-													>
-														<Icon name="X" size={24}/>
-													</button>
-												</div>
-
-												{/* 內容區塊 */}
-												<div className="flex flex-1 overflow-hidden">
-													{/* 左側：分類導航 */}
-													<div className="w-64 bg-white border-r border-slate-200 overflow-y-auto no-scrollbar flex flex-col">
-														{categories.map(cat => (
-															<button 
-																key={cat.id} 
-																onClick={() => setActiveCategory(cat.id)} 
-																className={`p-6 text-left border-b border-slate-50 transition-all hover:bg-purple-50 group relative ${activeCategory === cat.id ? 'bg-purple-50' : ''}`}
-															>
-																{activeCategory === cat.id && <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-[#5B2274]"></div>}
-																<span className={`block text-lg font-[900] ${activeCategory === cat.id ? 'text-[#5B2274]' : 'text-slate-600 group-hover:text-[#5B2274]'}`}>
-																	{cat.name}
-																</span>
-																<span className="text-xs font-bold text-slate-400 mt-1 block">
-																	{products.filter(p => p.categoryId === cat.id && !p.isHidden).length} 個品項
-																</span>
-															</button>
-														))}
-													</div>
-
-													{/* 右側：商品網格 */}
-													<div className="flex-1 overflow-y-auto p-8 bg-[#F1F5F9]">
-														<div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-															{products.filter(p => p.categoryId === activeCategory && !p.isHidden).map(p => (
-																<div 
-																	key={p.id} 
-																	onClick={() => {
-																		// 初始化選擇器數據
-																		const defaultVariant = p.variants?.[0] || null;
-																		setTempSelectorData({
-																			step: 'config',
-																			selectedProduct: p,
-																			qty: 1,
-																			variant: defaultVariant,
-																			addons: [],
-																			sideGroups: {},
-																			set: null,
-																			setChoices: {},
-																			note: ''
-																		});
-																		handlePushModal({ type: 'admin_product_config', data: modal.data });
-																	}} 
-																	className="bg-white rounded-3xl p-4 shadow-sm border border-slate-100 cursor-pointer hover:shadow-xl hover:border-[#5B2274] hover:-translate-y-1 transition-all group h-full flex flex-col"
-																>
-																	<div className="w-full aspect-[4/3] bg-slate-100 rounded-2xl mb-4 overflow-hidden relative">
-																		{p.image ? (
-																			<img src={p.image} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"/>
-																		) : (
-																			<div className="w-full h-full flex items-center justify-center text-slate-300"><Icon name="Image" size={32}/></div>
-																		)}
-																		{/* Add Button Overlay */}
-																		<div className="absolute bottom-3 right-3 w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-[#5B2274] opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0">
-																			<Icon name="Plus" size={24} strokeWidth={3} />
-																		</div>
-																	</div>
-																	<div className="flex-1 flex flex-col">
-																		<h4 className="text-lg font-[900] text-slate-800 leading-tight mb-2 group-hover:text-[#5B2274] transition-colors">{p.name}</h4>
-																		<div className="mt-auto flex items-baseline gap-1">
-																			<span className="text-xs font-bold text-slate-400">$</span>
-																			<span className="text-xl font-[1000] text-slate-800">{p.price}</span>
-																			{p.variants?.length > 0 && <span className="text-xs font-bold text-slate-400">起</span>}
-																		</div>
-																	</div>
-																</div>
-															))}
-														</div>
-													</div>
-												</div>
-											</div>
-										)}
-
-										{/* [New] POS模式 - 商品詳細設定 (仿前台樣式，強制全螢幕覆蓋) */}
-										{modal.type === 'admin_product_config' && (
-											<div className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-scale-in">
-												{(() => {
-													const { selectedProduct: p, variant, addons: selectedAddons, qty, note } = tempSelectorData;
-													if(!p) return null;
-
-													// 計算
-													const basePrice = variant ? variant.price : p.price;
-													const addonsPrice = selectedAddons.reduce((sum, a) => sum + a.price, 0);
-													const unitPrice = basePrice + addonsPrice;
-													const totalPrice = unitPrice * qty;
-
-													const handleConfirmAdd = () => {
-														const newItem = {
-															productId: p.id,
-															name: p.name,
-															image: p.image,
-															variantName: variant ? variant.name : '',
-															variant: variant,
-															unitPrice: unitPrice,
-															qty: qty,
-															totalPrice: totalPrice,
-															addons: selectedAddons,
-															sideGroups: {},
-															set: null,
-															note: note
-														};
-														handleModifyOrderItem(modal.data.id, 'add', { newItem });
-														handlePopModal(); // 關閉 Config
-														handlePopModal(); // 關閉 Selector
-													};
-
-													return (
-														<div className="bg-white w-full max-w-5xl h-[85vh] rounded-[2.5rem] shadow-2xl flex overflow-hidden relative">
-															{/* 關閉按鈕 */}
-															<button onClick={handlePopModal} className="absolute top-6 right-6 z-10 w-10 h-10 rounded-full bg-black/10 hover:bg-black/20 text-slate-800 flex items-center justify-center transition-colors">
-																<Icon name="X" size={24}/>
-															</button>
-
-															{/* 左側：大圖與基本資訊 */}
-															<div className="w-5/12 bg-slate-50 relative hidden md:flex flex-col">
-																<div className="h-2/3 w-full relative">
-																	{p.image ? (
-																		<img src={p.image} className="w-full h-full object-cover"/>
-																	) : (
-																		<div className="w-full h-full flex items-center justify-center text-slate-300"><Icon name="Image" size={64}/></div>
-																	)}
-																	<div className="absolute inset-0 bg-gradient-to-t from-slate-900/50 to-transparent"></div>
-																	<div className="absolute bottom-0 left-0 p-8 text-white">
-																		<h2 className="text-3xl font-[1000] leading-tight mb-2 shadow-black drop-shadow-md">{p.name}</h2>
-																		<div className="text-xl font-bold opacity-90">${unitPrice} / 份</div>
-																	</div>
-																</div>
-																<div className="flex-1 p-8 bg-[#F8FAFC] border-t border-slate-200">
-																	<div className="text-sm font-bold text-slate-500 leading-relaxed">
-																		{p.description || "尚無商品描述"}
-																	</div>
-																</div>
-															</div>
-
-															{/* 右側：選項設定 (捲動區) */}
-															<div className="flex-1 flex flex-col bg-white h-full">
-																{/* 手機版標題 (md以上隱藏) */}
-																<div className="md:hidden p-6 border-b border-slate-100 bg-white sticky top-0 z-10">
-																	<h2 className="text-2xl font-[1000] text-slate-800">{p.name}</h2>
-																	<div className="text-[#5B2274] font-bold text-lg mt-1">${unitPrice}</div>
-																</div>
-
-																<div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-10">
-																	{/* 規格 */}
-																	{p.variants?.length > 0 && (
-																		<div className="space-y-4">
-																			<div className="flex items-center gap-3">
-																				<div className="w-8 h-8 rounded-lg bg-[#5B2274] text-white flex items-center justify-center font-bold text-sm">1</div>
-																				<h3 className="text-lg font-[900] text-slate-800">選擇規格</h3>
-																				<span className="text-xs font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded ml-auto">必選</span>
-																			</div>
-																			<div className="grid grid-cols-2 gap-3">
-																				{p.variants.map((v, i) => (
-																					<button key={i} onClick={() => setTempSelectorData({...tempSelectorData, variant: v})} 
-																						className={`p-4 rounded-2xl border-2 text-left transition-all ${variant?.name === v.name ? 'border-[#5B2274] bg-purple-50' : 'border-slate-100 bg-white hover:border-slate-300'}`}>
-																						<div className={`font-bold ${variant?.name === v.name ? 'text-[#5B2274]' : 'text-slate-700'}`}>{v.name}</div>
-																						<div className="text-sm font-bold text-slate-400 mt-1">${v.price}</div>
-																					</button>
-																				))}
-																			</div>
-																		</div>
-																	)}
-
-																	{/* 客製化 */}
-																	{p.allowAddons?.length > 0 && (
-																		<div className="space-y-4">
-																			<div className="flex items-center gap-3">
-																				<div className="w-8 h-8 rounded-lg bg-slate-200 text-slate-600 flex items-center justify-center font-bold text-sm">2</div>
-																				<h3 className="text-lg font-[900] text-slate-800">加購/客製化</h3>
-																			</div>
-																			<div className="space-y-2">
-																				{addons.filter(a => p.allowAddons.includes(a.id)).map(ad => {
-																					const isSelected = selectedAddons.some(a => a.id === ad.id);
-																					return (
-																						<button key={ad.id} onClick={() => {
-																							const newAddons = isSelected 
-																								? selectedAddons.filter(a => a.id !== ad.id)
-																								: [...selectedAddons, ad];
-																							setTempSelectorData({...tempSelectorData, addons: newAddons});
-																						}} className={`w-full p-4 rounded-xl border flex justify-between items-center transition-all ${isSelected ? 'bg-purple-50 border-[#5B2274]' : 'bg-white border-slate-100 hover:bg-slate-50'}`}>
-																							<div className="flex items-center gap-3">
-																								<div className={`w-5 h-5 rounded border flex items-center justify-center ${isSelected ? 'bg-[#5B2274] border-[#5B2274]' : 'border-slate-300'}`}>
-																									{isSelected && <Icon name="Check" size={14} className="text-white"/>}
-																								</div>
-																								<span className={`font-bold ${isSelected ? 'text-[#5B2274]' : 'text-slate-700'}`}>{ad.name}</span>
-																							</div>
-																							{ad.price > 0 && <span className="text-sm font-bold text-slate-400">+${ad.price}</span>}
-																						</button>
-																					);
-																				})}
-																			</div>
-																		</div>
-																	)}
-
-																	{/* 備註 */}
-																	<div className="space-y-4">
-																		<div className="flex items-center gap-3">
-																			<div className="w-8 h-8 rounded-lg bg-slate-200 text-slate-600 flex items-center justify-center font-bold text-sm">3</div>
-																			<h3 className="text-lg font-[900] text-slate-800">餐點備註</h3>
-																		</div>
-																		<textarea 
-																			className="w-full bg-slate-50 border-0 rounded-2xl p-4 font-bold text-slate-700 outline-none focus:ring-2 focus:ring-[#5B2274] resize-none min-h-[100px]" 
-																			placeholder="有什麼特殊需求嗎？例如：去冰、不加蔥..."
-																			value={note}
-																			onChange={e => setTempSelectorData({...tempSelectorData, note: e.target.value})}
-																		/>
-																	</div>
-																</div>
-
-																{/* 底部動作列 */}
-																<div className="p-6 md:p-8 border-t border-slate-100 bg-white flex items-center gap-6">
-																	<div className="flex items-center gap-4 bg-slate-100 rounded-full p-1.5 pr-6">
-																		<button onClick={() => setTempSelectorData({...tempSelectorData, qty: Math.max(1, qty-1)})} className="w-10 h-10 rounded-full bg-white shadow-sm text-slate-800 hover:text-[#5B2274] flex items-center justify-center transition-colors"><Icon name="Minus" size={20}/></button>
-																		<span className="text-xl font-[1000] text-slate-800 w-6 text-center">{qty}</span>
-																		<button onClick={() => setTempSelectorData({...tempSelectorData, qty: qty+1})} className="w-10 h-10 rounded-full bg-white shadow-sm text-slate-800 hover:text-[#5B2274] flex items-center justify-center transition-colors"><Icon name="Plus" size={20}/></button>
-																	</div>
-																	<button 
-																		onClick={handleConfirmAdd} 
-																		className="flex-1 py-4 bg-[#5B2274] text-white rounded-2xl font-[1000] text-xl shadow-xl shadow-purple-200 hover:bg-[#4a1b5e] hover:shadow-2xl active:scale-95 transition-all flex items-center justify-center gap-3"
-																	>
-																		<span>加入訂單</span>
-																		<span className="bg-white/20 px-3 py-1 rounded-lg text-base">${totalPrice}</span>
-																	</button>
-																</div>
-															</div>
-														</div>
-													);
-												})()}
-											</div>
-										)}
-										
 										{modal.type === 'edit_order' && (
 											<div className="fixed inset-0 z-[100] flex items-end justify-center">
 												<div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setModal(null)} />
@@ -4101,48 +4441,74 @@
 																	</div>
 
 																	<div className="space-y-4 pt-4 border-t border-slate-100">
-																		<div className="space-y-2">
-																			<div className="flex items-center gap-2 text-[10px] font-black text-amber-600 uppercase tracking-widest"><Icon name="User" size={12}/> 顧客永久註記 (跨單連動)</div>
-																			<div className="flex gap-2 bg-amber-50 p-1.5 rounded-2xl border border-amber-100">
-																				<textarea className="flex-1 bg-transparent border-none px-3 py-2 text-xs font-bold text-slate-700 resize-none outline-none placeholder:text-amber-300" rows="1" value={customerNote} onChange={(e)=>setCustomerNote(e.target.value)} placeholder="輸入關於此客人的備註..."></textarea>
-																				<button onClick={saveCustomerNote} className="bg-amber-400 text-white w-10 h-full rounded-xl shadow-sm active:scale-95 flex items-center justify-center transition-all hover:bg-amber-500"><Icon name="Save" size={18}/></button>
-																			</div>
-																		</div>
-																		<div className="flex gap-4">
-																			<div className="flex-1 space-y-2">
-																				<div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">本單備註</div>
-																				<input className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold text-slate-600 outline-none focus:border-[#5B2274]" value={modal.data.adminNote || ''} onChange={e => setModal({...modal, data: {...modal.data, adminNote: e.target.value}})} placeholder="輸入..." />
-																			</div>
-																			<div className="space-y-2">
-																				<div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">付款核銷</div>
-																				<div className="flex items-center h-[42px] px-2"><ToggleSwitch checked={modal.data.verified} onChange={(c)=>setModal({...modal, data:{...modal.data, verified:c}})} /></div>
-																			</div>
-																		</div>
-																	</div>
-																	<div className="text-center pt-8 pb-12"><button onClick={() => { if(confirm("確定永久刪除？")) { dbOp('delete', 'orders', modal.data.id); setModal(null); }}} className="text-[10px] font-bold text-slate-300 hover:text-red-500 underline tracking-widest">永久刪除此訂單</button></div>
-																</div>
+                                                                        <div className="space-y-2">
+                                                                            <div className="flex items-center gap-2 text-[10px] font-black text-amber-600 uppercase tracking-widest"><Icon name="User" size={12}/> 顧客永久註記 (跨單連動)</div>
+                                                                            <div className="flex gap-2 bg-amber-50 p-1.5 rounded-2xl border border-amber-100">
+                                                                                <textarea className="flex-1 bg-transparent border-none px-3 py-2 text-xs font-bold text-slate-700 resize-none outline-none placeholder:text-amber-300" rows="1" value={customerNote} onChange={(e)=>setCustomerNote(e.target.value)} placeholder="輸入關於此客人的備註..."></textarea>
+                                                                                <button onClick={saveCustomerNote} className="bg-amber-400 text-white w-10 h-full rounded-xl shadow-sm active:scale-95 flex items-center justify-center transition-all hover:bg-amber-500"><Icon name="Save" size={18}/></button>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex gap-4">
+                                                                            <div className="flex-1 space-y-2">
+                                                                                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">本單備註</div>
+                                                                                <input className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold text-slate-600 outline-none focus:border-[#5B2274]" value={modal.data.adminNote || ''} onChange={e => setModal({...modal, data: {...modal.data, adminNote: e.target.value}})} placeholder="輸入..." />
+                                                                            </div>
+                                                                            <div className="space-y-2">
+                                                                                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">付款核銷</div>
+                                                                                <div className="flex items-center h-[42px] px-2"><ToggleSwitch checked={modal.data.verified} onChange={(c)=>setModal({...modal, data:{...modal.data, verified:c}})} /></div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                    
+																	{/* [New] 變更訂單按鈕 (放置於刪除按鈕上方，避免被遮擋) */}
+                                                                    {!['completed', 'cancelled'].includes(modal.data.status) && (
+                                                                        <div className="mb-6 px-2">
+                                                                            <button onClick={() => setModal({ type: 'edit_cart', data: JSON.parse(JSON.stringify(modal.data)) })} className="w-full py-4 bg-white border-2 border-dashed border-purple-200 text-[#5B2274] font-[900] rounded-2xl hover:bg-purple-50 hover:border-[#5B2274] transition-all flex items-center justify-center gap-2 shadow-sm">
+                                                                                <Icon name="Edit3" size={20}/> 變更訂單內容 (補單/改量)
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+																	
+                                                                    {/* 永久刪除按鈕 */}
+                                                                    <div className="text-center pt-8 pb-12">
+                                                                        <button onClick={() => { if(confirm("確定永久刪除？")) { dbOp('delete', 'orders', modal.data.id); setModal(null); }}} className="text-[10px] font-bold text-slate-300 hover:text-red-500 underline tracking-widest flex items-center justify-center gap-2 mx-auto">
+                                                                            <Icon name="Trash2" size={12}/> 永久刪除此訂單
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
 
-																{/* 底部按鈕區 (加大與美化) */}
-																{!['completed', 'cancelled'].includes(modal.data.status) && (
-																	<div className="p-5 bg-white border-t border-slate-100 pb-10 shadow-[0_-10px_30px_rgba(0,0,0,0.05)]">
-																		<div className="flex gap-3">
-																			{modal.data.status === 'pending' && (
-																				<>
-																					<button onClick={() => { if(confirm('拒絕？')) handleUpdateOrderStatus(modal.data.id, 'cancelled'); }} className="flex-1 py-5 bg-slate-50 text-slate-400 font-black rounded-2xl text-sm border border-slate-100 hover:bg-red-50 hover:text-red-400 transition-all active:scale-95">拒絕</button>
-																					<button onClick={() => handleUpdateOrderStatus(modal.data.id, 'confirmed')} className="flex-[2.5] py-5 bg-blue-600 text-white font-[1000] rounded-2xl shadow-xl shadow-blue-100 text-[15px] tracking-[0.1em] hover:bg-blue-700 active:scale-95 transition-all">確認接單</button>
-																				</>
-																			)}
-																			{modal.data.status === 'confirmed' && <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'preparing')} className="w-full py-5 rounded-2xl bg-orange-500 text-white font-[1000] flex items-center justify-center gap-2 text-base shadow-xl shadow-orange-100 hover:bg-orange-600 active:scale-95 transition-all"><Icon name="Flame" size={24}/> 開始製作</button>}
-																			{modal.data.status === 'preparing' && <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'ready')} className="w-full py-5 rounded-2xl bg-emerald-500 text-white font-[1000] flex items-center justify-center gap-2 text-base shadow-xl shadow-emerald-100 hover:bg-emerald-600 active:scale-95 transition-all"><Icon name="CheckCircle" size={24}/> 製作完成</button>}
-																			{modal.data.status === 'ready' && <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'completed')} className="w-full py-5 rounded-2xl bg-[#5B2274] text-white font-[1000] flex items-center justify-center gap-2 text-base shadow-xl shadow-purple-100 hover:bg-[#4a1b5e] active:scale-95 transition-all"><Icon name="ShoppingBag" size={24}/> 完成取餐</button>}
-																		</div>
-																	</div>
-																)}
-															</div>
-														);
-													})()}
-												</div>
-											</div>
+                                                                {/* --- 這裡開始是固定在底部的操作區 (Flex 佈局外層) --- */}
+                                                                
+                                                                {/* 1. 變更訂單按鈕 */}
+                                                                {!['completed', 'cancelled'].includes(modal.data.status) && (
+                                                                    <div className="px-5 pt-4 pb-2 bg-white border-t border-slate-50 relative z-20">
+                                                                        <button onClick={() => setModal({ type: 'edit_cart', data: JSON.parse(JSON.stringify(modal.data)) })} className="w-full py-3 bg-white border-2 border-dashed border-purple-200 text-[#5B2274] font-[900] rounded-2xl hover:bg-purple-50 hover:border-[#5B2274] transition-all flex items-center justify-center gap-2">
+                                                                            <Icon name="Edit3" size={18}/> 變更訂單內容 (補單/改量)
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+
+                                                                {/* 2. 狀態操作按鈕 (接單/出餐) */}
+                                                                {!['completed', 'cancelled'].includes(modal.data.status) && (
+                                                                    <div className="p-5 bg-white pb-10 shadow-[0_-10px_30px_rgba(0,0,0,0.05)] relative z-30">
+                                                                        <div className="flex gap-3">
+                                                                            {modal.data.status === 'pending' && (
+                                                                                <>
+                                                                                    <button onClick={() => { if(confirm('拒絕？')) handleUpdateOrderStatus(modal.data.id, 'cancelled'); }} className="flex-1 py-5 bg-slate-50 text-slate-400 font-black rounded-2xl text-sm border border-slate-100 hover:bg-red-50 hover:text-red-400 transition-all active:scale-95">拒絕</button>
+                                                                                    <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'confirmed')} className="flex-[2.5] py-5 bg-blue-600 text-white font-[1000] rounded-2xl shadow-xl shadow-blue-100 text-[15px] tracking-[0.1em] hover:bg-blue-700 active:scale-95 transition-all">確認接單</button>
+                                                                                </>
+                                                                            )}
+                                                                            {modal.data.status === 'confirmed' && <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'preparing')} className="w-full py-5 rounded-2xl bg-orange-500 text-white font-[1000] flex items-center justify-center gap-2 text-base shadow-xl shadow-orange-100 hover:bg-orange-600 active:scale-95 transition-all"><Icon name="Flame" size={24}/> 開始製作</button>}
+                                                                            {modal.data.status === 'preparing' && <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'ready')} className="w-full py-5 rounded-2xl bg-emerald-500 text-white font-[1000] flex items-center justify-center gap-2 text-base shadow-xl shadow-emerald-100 hover:bg-emerald-600 active:scale-95 transition-all"><Icon name="CheckCircle" size={24}/> 製作完成</button>}
+                                                                            {modal.data.status === 'ready' && <button onClick={() => handleUpdateOrderStatus(modal.data.id, 'completed')} className="w-full py-5 rounded-2xl bg-[#5B2274] text-white font-[1000] flex items-center justify-center gap-2 text-base shadow-xl shadow-purple-100 hover:bg-[#4a1b5e] active:scale-95 transition-all"><Icon name="ShoppingBag" size={24}/> 完成取餐</button>}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })()}
+                                                </div>
+                                            </div>
 										)}
 									</div>
 									<div className="p-5 bg-white border-t border-slate-100 flex gap-3">
