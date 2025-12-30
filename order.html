@@ -143,8 +143,11 @@
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
-        import { getAuth, signInWithCredential, OAuthProvider, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
-        import { getFirestore, doc, onSnapshot, collection, addDoc, setDoc, updateDoc, enableIndexedDbPersistence, query, where, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+        // [修改] 加入 signInWithCustomToken
+        import { getAuth, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, collection, addDoc, setDoc, updateDoc, enableIndexedDbPersistence, query, where, orderBy, getDocs, getDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+        // [新增] 引入 Functions SDK
+        import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-functions.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyA9x0gk2zQBJr1vkNLAoBodbBQ3_D2aXag",
@@ -158,15 +161,21 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
+        
+        // [新增] 初始化 Functions (這就是連線到後端的關鍵)
+        const functions = getFunctions(app);
 
         try {
             enableIndexedDbPersistence(db).catch((err) => {});
         } catch (e) { console.warn(e); }
         
+        // 掛載到 window 供 React 使用
         window.db = db;
         window.auth = auth;
-        window.signInWithCredential = signInWithCredential;
-        window.OAuthProvider = OAuthProvider;
+        window.functions = functions;          // [新增]
+        window.httpsCallable = httpsCallable;  // [新增]
+        window.signInWithCustomToken = signInWithCustomToken; // [新增]
+        
         window.appId = "cityburger-huwei-v1";
         window.onSnapshot = onSnapshot;
         window.doc = doc;
@@ -178,6 +187,7 @@
         window.where = where;
         window.orderBy = orderBy;
         window.getDocs = getDocs;
+        window.getDoc = getDoc;
     </script>
 
     <script type="text/babel">
@@ -188,7 +198,7 @@
         //  請填入您的 LIFF IDs
         // ==========================================
         // 點餐用 LIFF ID (主選單/訂單模式)
-        const LIFF_ID_ORDER = "YOUR_ORDER_LIFF_ID"; 
+        const LIFF_ID_ORDER = "2008752799-3k2GdCkG";
         // 瀏覽用 LIFF ID (單純瀏覽菜單/非點餐模式)
         const LIFF_ID_BROWSE = "YOUR_BROWSE_LIFF_ID";
 
@@ -580,6 +590,7 @@
             const [itemNote, setItemNote] = useState('');
             const [expandedSetId, setExpandedSetId] = useState(null);
             const [isInitLoading, setIsInitLoading] = useState(true);
+			const [showTableSelector, setShowTableSelector] = useState(false);
 
             const getTaiwanDate = () => {
                 const d = new Date();
@@ -611,84 +622,109 @@
             // ==========================================
             //  LIFF Initialization & Firebase Auth Bridge (修正版)
             // ==========================================
-            // [Updated] 初始化與路由判斷 (Router)
+            // [Updated] 初始化與路由判斷 (已修正語法錯誤)
             useEffect(() => {
+                const waitForDb = () => {
+                    return new Promise((resolve) => {
+                        const check = () => { if (window.db) resolve(window.db); else setTimeout(check, 100); };
+                        check();
+                    });
+                };
+
                 const initApp = async () => {
-                    // 1. 解析網址參數
+                    // 1. 取得網址參數
                     const currentUrl = new URL(window.location.href);
                     const params = currentUrl.searchParams;
-                    let tableParam = params.get('table'); // 使用 let 以便稍後修正
-                    const isFromLogin = params.get('from_login') === 'yes';
-                    
-                    // ★ 關鍵修正：如果是登入回來，但網址掉參數，嘗試從 localStorage 找回桌號
-                    if (isFromLogin && !tableParam) {
+                    const tableParam = params.get('table'); // 只有掃碼當下會有這個
+
+                    // 2. 備份機制：如果網址沒桌號（例如登入後跳回來），從 Storage 找
+                    let activeTable = tableParam;
+                    if (!activeTable) {
                         const backupTable = localStorage.getItem('cb_backup_table');
-                        if (backupTable) {
-                            tableParam = backupTable;
-                            console.log("Restored table from backup:", tableParam);
-                        }
+                        if (backupTable) activeTable = backupTable;
                     }
 
                     let localUser = null;
+                    let needsRegistration = false;
 
-                    // 2. 初始化 LIFF
                     try {
                         if (window.liff) {
-                            // 這裡不用 await login，只做 init
-                            await window.liff.init({ liffId: "2008752799-3k2GdCkG" }); 
+                            await window.liff.init({ liffId: LIFF_ID_ORDER });
                             
+                            // ★★★ 核心修改：掃碼強制重登機制 ★★★
+                            // 邏輯：如果網址帶有 table (代表剛掃碼) 且 LIFF 判斷已登入 -> 強制登出再登入
+                            // 目的：確保每次掃碼都重新驗證身分，解決卡住問題
+                            if (tableParam && window.liff.isLoggedIn()) {
+                                console.log("偵測到掃碼進入，強制更新登入狀態...");
+                                localStorage.setItem('cb_backup_table', tableParam); // 存好桌號
+                                window.liff.logout(); // 登出
+                                
+                                // 改用無參數 login，讓它自動跳轉回後台設定的 Endpoint URL
+                                window.liff.login();  
+                                return; // 停止執行，等待跳轉
+                            }
+
                             if (window.liff.isLoggedIn()) {
                                 const profile = await window.liff.getProfile();
+                                const accessToken = window.liff.getAccessToken();
+                                
                                 localUser = { uid: profile.userId, ...profile };
                                 setCurrentUser(localUser);
                                 setLineDisplayName(profile.displayName);
+
+                                // 呼叫後端換票
+                                if (!window.auth.currentUser) {
+                                    try {
+                                        const lineLoginFn = window.httpsCallable(window.functions, 'lineLogin');
+                                        const result = await lineLoginFn({ accessToken: accessToken });
+                                        await window.signInWithCustomToken(window.auth, result.data.token);
+                                    } catch (authErr) { console.error(authErr); }
+                                }
+
+                                // 讀取資料庫
+                                const db = await waitForDb();
+                                const { doc, getDoc, appId } = window;
+                                try {
+                                    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', localUser.uid);
+                                    const snapshot = await getDoc(userRef);
+                                    if (snapshot.exists()) {
+                                        const data = snapshot.data();
+                                        if (!data.name || !data.phone) needsRegistration = true;
+                                        else {
+                                            setUserProfile({ ...data, name: data.name, phone: data.phone });
+                                            setUserInfo(prev => ({ ...prev, name: data.name, phone: data.phone, remember: true }));
+                                        }
+                                    } else { needsRegistration = true; }
+                                } catch (e) { needsRegistration = true; }
                             }
                         }
-                    } catch (err) {
-                        console.error("LIFF Init Error:", err);
-                    }
+                    } catch (err) { console.error("LIFF Init Error:", err); }
 
-                    // 3. 路由分流邏輯 (The Switch)
-                    if (tableParam) {
-                        // --- 情境 A: 內用 (有桌號) ---
-                        setTableNumber(tableParam);
+                    // 處理註冊視窗
+                    if (localUser && needsRegistration) setShowRegisterModal(true);
+
+                    // 3. 路由導向
+                    if (activeTable) {
+                        setTableNumber(activeTable);
                         setOrderMode('dine_in');
                         
-                        // 清除備份，避免以後誤判
-                        if (isFromLogin) {
-                            localStorage.removeItem('cb_backup_table');
-                        }
-
-                        if (localUser && isFromLogin) {
-                            // 成功登入且有桌號 -> 進菜單 (並觸發監聽器的註冊檢查)
+                        // 只要有 localUser 就進菜單 (因為剛掃碼的情況在上面已經被擋下來去重登了)
+                        if (localUser) {
                             setViewState('menu');
-                            
-                            // 清洗網址參數 (拿掉 from_login，保留 table)
-                            setTimeout(() => {
+                            // 清理網址參數
+                            if (params.get('from_login')) {
                                 const cleanUrl = new URL(window.location.href);
                                 cleanUrl.searchParams.delete('from_login');
-                                // 確保 table 參數還在
-                                cleanUrl.searchParams.set('table', tableParam);
                                 window.history.replaceState({}, '', cleanUrl.toString());
-                            }, 1000);
+                            }
                         } else {
-                            // 沒登入，或是剛掃碼進來 -> 顯示選擇頁
+                            // 沒登入 -> 顯示登入頁 (landing_guest)
                             setViewState('landing_guest');
                         }
-
                     } else {
-                        // --- 情境 B: 外帶/外送 (無桌號) ---
-                        // 清除備份，確保乾淨
-                        localStorage.removeItem('cb_backup_table');
-
-                        if (localUser) {
-                            // 已登入 -> 進入模式選擇
-                            setViewState('landing_mode');
-                        } else {
-                            // 未登入 -> 為了避免無限迴圈，這裡建議先顯示按鈕，不要直接 login()
-                            // 但如果您希望外帶一進來就強制登入，可以保留 login
-                             window.liff.login();
-                        }
+                        // 外帶模式
+                        if (localUser) setViewState('landing_mode');
+                        else window.liff.login(); 
                     }
                     
                     setIsInitLoading(false);
@@ -696,7 +732,7 @@
                 
                 initApp();
             }, []);
-			
+
             useEffect(() => {
                 const { db, appId, onSnapshot, doc, collection } = window;
                 if (!db) return;
@@ -1166,9 +1202,16 @@
                 setCurrentView('menu');
             };
 			
-			// [New] 處理初次註冊
+			// [Updated] 處理初次註冊
             const handleRegister = async (e) => {
                 e.preventDefault();
+                
+                // 防止按鈕沒反應的主因：Firebase 還沒連線成功
+                if (!window.auth.currentUser) {
+                    showAlert("系統連線中...請稍候再試 (Firebase Auth 未就緒)");
+                    return;
+                }
+
                 const formData = new FormData(e.target);
                 const name = formData.get('reg_name').trim();
                 const phone = formData.get('reg_phone').trim();
@@ -1177,7 +1220,8 @@
 
                 try {
                     const { db, appId, doc, setDoc } = window;
-                    // 寫入後台標準欄位 name, phone，並設定角色
+                    
+                    // 寫入資料
                     await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', currentUser.uid), {
                         name: name,
                         phone: phone,
@@ -1187,13 +1231,13 @@
                     }, { merge: true });
                     
                     showAlert("會員註冊成功！");
-                    // 註冊成功後，上方的 useEffect 會監聽到資料變更，自動關閉視窗
+                    
                 } catch (err) {
-                    console.error(err);
-                    showAlert("註冊失敗，請檢查網路連線");
+                    console.error("註冊失敗:", err);
+                    showAlert("註冊失敗：" + (err.message || "請檢查網路"));
                 }
             };
-
+			
             // [Updated] 預先驗證 (加入訪客與外送邏輯)
             const handlePreSubmit = () => {
                 // 1. 訪客模式 (內用) -> 免驗證個資，直接通過
@@ -1870,57 +1914,77 @@
             // --- 視圖 1: 內用身分選擇 (掃碼後顯示) ---
             if (viewState === 'landing_guest') {
                 return (
-                    <div className="fixed inset-0 bg-slate-50 flex flex-col items-center justify-center p-6 animate-fade-in z-50">
-                        <div className="w-24 h-24 bg-white rounded-full shadow-xl flex items-center justify-center mb-6">
-                            <span className="text-4xl">🍽️</span>
-                        </div>
-                        <h2 className="text-2xl font-[900] text-slate-800 mb-2">歡迎光臨</h2>
-                        <p className="text-sm text-slate-500 font-bold mb-8">桌號：{tableNumber}</p>
+                    <div className="min-h-screen bg-slate-50 p-6 flex flex-col items-center justify-center relative overflow-hidden">
+                        {/* 背景裝飾 */}
+                        <div className="absolute top-0 left-0 w-64 h-64 bg-[#5B2274]/10 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2"></div>
+                        <div className="absolute bottom-0 right-0 w-96 h-96 bg-[#FFB800]/10 rounded-full blur-3xl translate-x-1/2 translate-y-1/2"></div>
 
-                        <div className="w-full max-w-xs space-y-4">
-                            {/* LINE 會員登入按鈕 - 強制重新驗證版 */}
-							<button 
-								onClick={() => {
-									// ★ 1. 直接組裝乾淨的網址 (不依賴當前髒掉的網址)
-									const baseUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
-									const redirectUrl = new URL(baseUrl);
-									
-									// ★ 2. 明確寫入參數 (確保跨 APP 也不會掉)
-									redirectUrl.searchParams.set('from_login', 'yes');
-									// 從 State 拿桌號，這是最準確的
-									if (tableNumber) {
-										redirectUrl.searchParams.set('table', tableNumber);
-									}
-									
-									console.log("Redirecting to:", redirectUrl.toString());
+                        <div className="relative z-10 w-full max-w-sm space-y-6">
+                            {/* 主卡片區域 */}
+                            <div className="bg-white/80 backdrop-blur-sm p-8 rounded-3xl shadow-xl border border-white/50 text-center space-y-6">
+                                <div className="w-20 h-20 bg-gradient-to-br from-[#5B2274] to-[#8B44AC] rounded-2xl mx-auto flex items-center justify-center shadow-lg transform rotate-3">
+                                    <Icon name="coffee" size={40} className="text-white" />
+                                </div>
+                                
+                                <div>
+                                    <h3 className="text-2xl font-black text-slate-800 mb-2">歡迎光臨 City Burger</h3>
+                                    <p className="text-slate-500 font-medium">請選擇您的點餐方式</p>
+                                </div>
 
-									// 3. 執行登入
-									if (window.liff.isLoggedIn()) {
-										window.liff.logout();
-									}
-									window.liff.login({ redirectUri: redirectUrl.toString() });
-								}}
-								className="w-full bg-[#06C755] text-white py-4 rounded-2xl font-black text-lg shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
-							>
-								<Icon name="message-circle" size={24} /> LINE 會員登入
-							</button>
-                            
-                            <p className="text-xs text-slate-400 text-center">累積點數・領取優惠・專屬紀錄</p>
-                            
-                            <div className="relative py-4">
-                                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-300"></div></div>
-                                <div className="relative flex justify-center text-xs"><span className="px-2 bg-slate-50 text-slate-400 font-bold">或</span></div>
+                                {/* LINE 登入按鈕 (包含自動網域修正) */}
+                                <button 
+                                    onClick={() => {
+                                        // 1. 設定黃金網址 (這是您剛剛測試成功的那一個)
+                                        const targetDomainUrl = "https://cityburger-huwei.web.app/order.html";
+                                        
+                                        // 2. 檢查現在手機是不是就在這個網址上？
+                                        // 這裡會忽略 http/https 的差異，專注比對網域
+                                        const currentIsWebapp = window.location.href.includes("cityburger-huwei.web.app");
+
+                                        if (tableNumber) localStorage.setItem('cb_backup_table', tableNumber);
+
+                                        if (!currentIsWebapp) {
+                                            // 狀況 A：如果在 firebaseapp.com，強迫跳轉到 web.app
+                                            // 跳過去之後，讓使用者再按一次登入，這樣網域就一致了
+                                            alert("系統優化中，將為您切換至最佳連線...");
+                                            window.location.href = targetDomainUrl + window.location.search; // 把桌號參數帶過去
+                                            return;
+                                        }
+
+                                        // 狀況 B：已經在 web.app 了，直接登入
+                                        // 這時候「來源」跟「目的地」都是 web.app，絕對不會錯！
+                                        if (window.liff.isLoggedIn()) {
+                                            window.liff.logout();
+                                        }
+                                        
+                                        // 使用當前網址 (web.app) 作為跳轉目標
+                                        window.liff.login({ redirectUri: window.location.href });
+                                    }}
+                                    className="w-full bg-[#06C755] hover:bg-[#05b64c] text-white py-4 rounded-2xl font-black text-lg shadow-lg active:scale-95 transition-all flex items-center justify-center gap-3 group"
+                                >
+                                    <Icon name="message-circle" size={24} /> 
+                                    <span>LINE 會員登入</span>
+                                </button>
+                                
+                                <p className="text-xs text-slate-400">累積點數・領取優惠・專屬紀錄</p>
                             </div>
 
-                            {/* 免登入按鈕 - 設定為訪客模式 */}
+                            {/* 分隔線 */}
+                            <div className="relative flex items-center py-2">
+                                <div className="flex-grow border-t border-slate-300"></div>
+                                <span className="flex-shrink-0 mx-4 text-slate-400 text-sm font-bold">或是</span>
+                                <div className="flex-grow border-t border-slate-300"></div>
+                            </div>
+
+                            {/* 訪客直接點餐按鈕 */}
                             <button 
                                 onClick={() => {
-                                    setIsGuest(true); // 設定為訪客
-                                    setViewState('menu'); 
+                                    setViewState('landing_mode');
+                                    setCurrentUser({ uid: 'guest', displayName: '訪客' });
                                 }}
-                                className="w-full bg-white text-slate-600 border-2 border-slate-200 py-4 rounded-2xl font-black text-lg hover:border-slate-400 active:scale-95 transition-all"
+                                className="w-full bg-white border-2 border-slate-100 hover:border-slate-300 p-4 rounded-3xl flex items-center justify-center gap-2 shadow-sm transition-all active:scale-95 text-slate-500 font-bold"
                             >
-                                直接點餐 (免登入)
+                                <Icon name="user" size={20} /> 直接點餐 (免註冊)
                             </button>
                         </div>
                     </div>
@@ -1929,72 +1993,112 @@
 
             // --- 視圖 2: 外帶模式選擇 (遠端會員顯示) ---
             if (viewState === 'landing_mode') {
+                // 判斷是否為訪客
+                const isGuest = currentUser && currentUser.uid === 'guest';
+
                 return (
-                    <div className="fixed inset-0 bg-slate-50 flex flex-col items-center justify-center p-6 animate-fade-in z-50">
-                        <div className="w-24 h-24 bg-white rounded-full shadow-xl flex items-center justify-center mb-8">
-                            <Icon name="utensils" size={40} className="text-[#5B2274]" />
+                    <div className="min-h-screen bg-slate-50 p-6 flex flex-col items-center justify-center relative">
+                        
+                        {/* 頂部歡迎詞 */}
+                        <div className="text-center mb-10">
+                            <h2 className="text-2xl font-[900] text-slate-800">
+                                {isGuest ? '歡迎光臨' : `Hi, ${currentUser?.displayName || '會員'}`}
+                            </h2>
+                            <p className="text-slate-500 font-medium mt-2">
+                                {isGuest ? '訪客模式僅提供內用服務' : '今天想怎麼吃？'}
+                            </p>
                         </div>
-						
-                        <h2 className="text-2xl font-[900] text-slate-800 mb-2">線上點餐</h2>
-                        <p className="text-sm text-slate-500 font-bold mb-10">請選擇您的用餐方式</p>
 
-                        <div className="w-full max-w-sm space-y-4">
+                        <div className="w-full max-w-sm grid grid-cols-2 gap-4">
+                            {/* 1. 內用按鈕 (所有人都能看見) */}
+                            {/* 如果是訪客，讓內用按鈕佔滿全寬 (col-span-2)，因為只有這個選項 */}
                             <button 
-                                onClick={() => { setOrderMode('pickup'); setViewState('menu'); }}
-                                className="w-full bg-white border-2 border-slate-100 hover:border-[#5B2274] p-6 rounded-3xl flex items-center gap-6 shadow-sm transition-all active:scale-95 group"
+                                onClick={() => setShowTableSelector(true)}
+                                className={`${isGuest ? 'col-span-2 aspect-auto py-8' : 'aspect-square'} bg-white rounded-3xl shadow-lg border-2 border-transparent hover:border-[#5B2274] flex flex-col items-center justify-center gap-4 transition-all active:scale-95 group`}
                             >
-                                <div className="w-14 h-14 bg-purple-50 rounded-2xl flex items-center justify-center text-[#5B2274] group-hover:bg-[#5B2274] group-hover:text-white transition-colors">
-                                    <Icon name="shopping-bag" size={24} />
+                                <div className="w-16 h-16 bg-purple-100 rounded-2xl flex items-center justify-center text-[#5B2274] group-hover:scale-110 transition-transform">
+                                    <Icon name="utensils" size={32} />
                                 </div>
-                                <div className="text-left">
-                                    <h3 className="text-lg font-black text-slate-800">外帶自取</h3>
-                                    <p className="text-xs text-slate-400 font-bold mt-1">預約時間，到店取餐</p>
-                                </div>
-                                <div className="ml-auto text-slate-300"><Icon name="chevron-right" /></div>
+                                <span className="text-lg font-black text-slate-700">內用點餐</span>
                             </button>
 
-                            <button 
-                                onClick={() => { setOrderMode('delivery'); setViewState('menu'); }}
-                                className="w-full bg-white border-2 border-slate-100 hover:border-[#5B2274] p-6 rounded-3xl flex items-center gap-6 shadow-sm transition-all active:scale-95 group"
-                            >
-                                <div className="w-14 h-14 bg-orange-50 rounded-2xl flex items-center justify-center text-orange-500 group-hover:bg-orange-500 group-hover:text-white transition-colors">
-                                    <Icon name="bike" size={24} />
-                                </div>
-                                <div className="text-left">
-                                    <h3 className="text-lg font-black text-slate-800">外送服務</h3>
-                                    <p className="text-xs text-slate-400 font-bold mt-1">美味餐點，直送到府</p>
-                                </div>
-                                <div className="ml-auto text-slate-300"><Icon name="chevron-right" /></div>
-                            </button>
+                            {/* 2. 外帶按鈕 (只有 "非訪客" 才能看見) */}
+                            {!isGuest && (
+                                <button 
+                                    onClick={() => {
+                                        setOrderMode('take_out');
+                                        setTableNumber(null);
+                                        setViewState('menu');
+                                    }}
+                                    className="aspect-square bg-white rounded-3xl shadow-lg border-2 border-transparent hover:border-[#06C755] flex flex-col items-center justify-center gap-4 transition-all active:scale-95 group"
+                                >
+                                    <div className="w-16 h-16 bg-green-100 rounded-2xl flex items-center justify-center text-[#06C755] group-hover:scale-110 transition-transform">
+                                        <Icon name="shopping-bag" size={32} />
+                                    </div>
+                                    <span className="text-lg font-black text-slate-700">外帶自取</span>
+                                </button>
+                            )}
                         </div>
-						
-						{/* ★★★ 新增：在這裡補上強制註冊視窗 (複製這一段) ★★★ */}
-                        {showRegisterModal && currentUser && (
-                            <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-6 backdrop-blur-md animate-fade-in">
-                                <div className="bg-white w-full max-w-sm rounded-3xl p-8 shadow-2xl relative overflow-hidden">
-                                    <div className="absolute top-0 right-0 w-32 h-32 bg-purple-100 rounded-full blur-2xl -mr-16 -mt-16 pointer-events-none"></div>
-                                    <div className="relative z-10 text-center">
-                                        <div className="w-16 h-16 bg-[#5B2274] text-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-purple-200">
-                                            <Icon name="user-plus" size={32} />
+
+                        {/* 訪客專屬提示：如果要外帶，請去登入 */}
+                        {isGuest && (
+                            <button 
+                                onClick={() => setViewState('landing_guest')}
+                                className="mt-8 text-sm text-slate-400 font-bold flex items-center gap-1 hover:text-[#5B2274] transition-colors"
+                            >
+                                <span>想要外帶？請按此登入會員</span>
+                                <Icon name="arrow-right" size={16} />
+                            </button>
+                        )}
+                        
+                        {/* 底部登出/切換帳號按鈕 (方便測試或切換) */}
+                        {!isGuest && (
+                            <button 
+                                onClick={() => {
+                                    if(window.liff.isLoggedIn()) window.liff.logout();
+                                    setViewState('landing_guest');
+                                }}
+                                className="mt-8 text-sm text-slate-400 font-bold hover:text-red-500 transition-colors"
+                            >
+                                切換帳號 / 登出
+                            </button>
+                        )}
+
+                        {/* --- 桌號選擇器 Modal (保持不變) --- */}
+                        {showTableSelector && (
+                            <div className="fixed inset-0 bg-black/60 z-[100] flex items-end sm:items-center justify-center p-4 animate-fade-in">
+                                <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl animate-slide-up">
+                                    <div className="flex justify-between items-center mb-6">
+                                        <div>
+                                            <h3 className="text-xl font-black text-slate-800">請選擇桌號</h3>
+                                            <p className="text-xs text-slate-400">請查看桌上的號碼牌</p>
                                         </div>
-                                        <h2 className="text-2xl font-[900] text-slate-800 mb-2">歡迎加入</h2>
-                                        <p className="text-sm text-slate-500 font-bold mb-8">初次使用請先完善會員資料</p>
-                                        <form onSubmit={handleRegister} className="space-y-4 text-left">
-                                            <div>
-                                                <label className="text-xs font-black text-slate-400 ml-1 mb-1 block">您的姓名</label>
-                                                <input name="reg_name" type="text" placeholder="請輸入姓名" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-[#5B2274] focus:ring-1 focus:ring-[#5B2274] transition-all" defaultValue={lineDisplayName} />
-                                            </div>
-                                            <div>
-                                                <label className="text-xs font-black text-slate-400 ml-1 mb-1 block">手機號碼</label>
-                                                <input name="reg_phone" type="tel" placeholder="請輸入手機號碼" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-[#5B2274] focus:ring-1 focus:ring-[#5B2274] transition-all" />
-                                            </div>
-                                            <button type="submit" className="w-full bg-[#5B2274] text-white py-4 rounded-xl font-black text-lg shadow-xl active:scale-95 transition-all mt-4">確認註冊</button>
-                                        </form>
+                                        <button onClick={() => setShowTableSelector(false)} className="p-2 bg-slate-100 rounded-full text-slate-500">
+                                            <Icon name="x" size={20} />
+                                        </button>
+                                    </div>
+
+                                    {/* 桌號網格 1-12 */}
+                                    <div className="grid grid-cols-4 gap-3 mb-6">
+                                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(num => (
+                                            <button
+                                                key={num}
+                                                onClick={() => {
+                                                    setTableNumber(num.toString());
+                                                    setOrderMode('dine_in');
+                                                    setShowTableSelector(false); 
+                                                    setViewState('menu');        
+                                                }}
+                                                className="aspect-square rounded-2xl bg-slate-50 hover:bg-[#5B2274] hover:text-white border border-slate-200 text-slate-700 font-black text-xl transition-all active:scale-90 flex items-center justify-center shadow-sm"
+                                            >
+                                                {num}
+                                            </button>
+                                        ))}
                                     </div>
                                 </div>
                             </div>
                         )}
-						
+                        
                     </div>
                 );
             }
@@ -2325,7 +2429,7 @@
 
                     {/* Message Modal */}
                     {messageModal.show && (
-                        <div className="fixed inset-0 bg-black/60 z-[90] flex items-center justify-center p-6 backdrop-blur-sm animate-fade-in" onClick={() => setMessageModal({ show: false, content: '' })}>
+                        <div className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center p-6 backdrop-blur-sm animate-fade-in" onClick={() => setMessageModal({ show: false, content: '' })}>
                             <div className="bg-white w-full max-w-xs rounded-3xl p-6 shadow-2xl animate-slide-up text-center relative" onClick={e => e.stopPropagation()}>
                                 <div className="mb-4"><div className="w-12 h-12 bg-slate-100 text-slate-600 rounded-full flex items-center justify-center mx-auto mb-2"><Icon name="info" size={24} /></div><p className="text-slate-700 font-bold leading-relaxed">{messageModal.content}</p></div>
                                 <button onClick={() => setMessageModal({ show: false, content: '' })} className="w-full py-3 rounded-xl font-bold bg-[#5B2274] text-white shadow-lg active:scale-95 transition-transform">好</button>
@@ -2891,7 +2995,12 @@
                                     <form onSubmit={handleRegister} className="space-y-4 text-left">
                                         <div>
                                             <label className="text-xs font-black text-slate-400 ml-1 mb-1 block">您的姓名</label>
-                                            <input name="reg_name" type="text" placeholder="請輸入姓名" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-[#5B2274] focus:ring-1 focus:ring-[#5B2274] transition-all" defaultValue={lineDisplayName} />
+                                            <input 
+												name="reg_name" 
+												type="text" 
+												placeholder="請輸入姓名" 
+												className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-[#5B2274] focus:ring-1 focus:ring-[#5B2274] transition-all" 
+											/>
                                         </div>
                                         <div>
                                             <label className="text-xs font-black text-slate-400 ml-1 mb-1 block">手機號碼</label>
