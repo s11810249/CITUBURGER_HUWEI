@@ -591,6 +591,7 @@
             const [expandedSetId, setExpandedSetId] = useState(null);
             const [isInitLoading, setIsInitLoading] = useState(true);
 			const [showTableSelector, setShowTableSelector] = useState(false);
+			const [showEditProfileModal, setShowEditProfileModal] = useState(false); // [New] 修改資料視窗開關
 
             const getTaiwanDate = () => {
                 const d = new Date();
@@ -624,112 +625,62 @@
             // ==========================================
             // [Updated] 初始化與路由判斷 (已修正語法錯誤)
             useEffect(() => {
-                const waitForDb = () => {
-                    return new Promise((resolve) => {
-                        const check = () => { if (window.db) resolve(window.db); else setTimeout(check, 100); };
-                        check();
-                    });
-                };
-
                 const initApp = async () => {
-                    // 1. 取得網址參數
-                    const currentUrl = new URL(window.location.href);
-                    const params = currentUrl.searchParams;
-                    const tableParam = params.get('table'); // 只有掃碼當下會有這個
+                    // 1. 解析網址參數
+                    const params = new URLSearchParams(window.location.search);
+                    const tableParam = params.get('table');
+                    const orderIdParam = params.get('id'); 
+                    const isFromLogin = params.get('from_login'); // 判斷是否剛從 LINE 登入回來
 
-                    // 2. 備份機制：如果網址沒桌號（例如登入後跳回來），從 Storage 找
-                    let activeTable = tableParam;
-                    if (!activeTable) {
-                        const backupTable = localStorage.getItem('cb_backup_table');
-                        if (backupTable) activeTable = backupTable;
-                    }
+                    let liffUser = null;
+                    let isLiffLoggedIn = false;
 
-                    let localUser = null;
-                    let needsRegistration = false;
-
+                    // 2. 初始化 LIFF
                     try {
                         if (window.liff) {
-                            await window.liff.init({ liffId: LIFF_ID_ORDER });
-                            
-                            // ★★★ 核心修改：掃碼強制重登機制 ★★★
-                            // 邏輯：如果網址帶有 table (代表剛掃碼) 且 LIFF 判斷已登入 -> 強制登出再登入
-                            // 目的：確保每次掃碼都重新驗證身分，解決卡住問題
-                            if (tableParam && window.liff.isLoggedIn()) {
-                                console.log("偵測到掃碼進入，強制更新登入狀態...");
-                                localStorage.setItem('cb_backup_table', tableParam); // 存好桌號
-                                window.liff.logout(); // 登出
-                                
-                                // 改用無參數 login，讓它自動跳轉回後台設定的 Endpoint URL
-                                window.liff.login();  
-                                return; // 停止執行，等待跳轉
-                            }
-
+                            await window.liff.init({ liffId: LIFF_ID_ORDER }); 
                             if (window.liff.isLoggedIn()) {
+                                isLiffLoggedIn = true;
                                 const profile = await window.liff.getProfile();
-                                const accessToken = window.liff.getAccessToken();
-                                
-                                localUser = { uid: profile.userId, ...profile };
-                                setCurrentUser(localUser);
+                                liffUser = { uid: profile.userId, ...profile };
+                                setCurrentUser(liffUser);
                                 setLineDisplayName(profile.displayName);
-
-                                // 呼叫後端換票
-                                if (!window.auth.currentUser) {
-                                    try {
-                                        const lineLoginFn = window.httpsCallable(window.functions, 'lineLogin');
-                                        const result = await lineLoginFn({ accessToken: accessToken });
-                                        await window.signInWithCustomToken(window.auth, result.data.token);
-                                    } catch (authErr) { console.error(authErr); }
-                                }
-
-                                // 讀取資料庫
-                                const db = await waitForDb();
-                                const { doc, getDoc, appId } = window;
-                                try {
-                                    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', localUser.uid);
-                                    const snapshot = await getDoc(userRef);
-                                    if (snapshot.exists()) {
-                                        const data = snapshot.data();
-                                        if (!data.name || !data.phone) needsRegistration = true;
-                                        else {
-                                            setUserProfile({ ...data, name: data.name, phone: data.phone });
-                                            setUserInfo(prev => ({ ...prev, name: data.name, phone: data.phone, remember: true }));
-                                        }
-                                    } else { needsRegistration = true; }
-                                } catch (e) { needsRegistration = true; }
                             }
                         }
-                    } catch (err) { console.error("LIFF Init Error:", err); }
+                    } catch (err) {
+                        console.error("LIFF Init Error:", err);
+                    }
 
-                    // 處理註冊視窗
-                    if (localUser && needsRegistration) setShowRegisterModal(true);
+                    // 3. 路由分流判斷
 
-                    // 3. 路由導向
-                    if (activeTable) {
-                        setTableNumber(activeTable);
+                    // 情境 D: 透過 LINE 點擊查看訂單明細 (最高優先級)
+                    if (orderIdParam) {
+                        setViewState('menu'); 
+                        setTimeout(() => setCurrentView('history'), 100); // 雖然訪客沒歷史紀錄頁，但查看單筆詳情是允許的
+                        setIsInitLoading(false);
+                        return;
+                    }
+
+                    // 情境 A: 內用掃碼
+                    if (tableParam) {
+                        setTableNumber(tableParam);
                         setOrderMode('dine_in');
                         
-                        // 只要有 localUser 就進菜單 (因為剛掃碼的情況在上面已經被擋下來去重登了)
-                        if (localUser) {
-                            setViewState('menu');
-                            // 清理網址參數
-                            if (params.get('from_login')) {
-                                const cleanUrl = new URL(window.location.href);
-                                cleanUrl.searchParams.delete('from_login');
-                                window.history.replaceState({}, '', cleanUrl.toString());
-                            }
+                        // 檢查是否剛從登入跳轉回來
+                        if (isFromLogin) {
+                            setViewState('menu'); // ★ 這裡會進入菜單，此時 currentUser 應該已經有了
                         } else {
-                            // 沒登入 -> 顯示登入頁 (landing_guest)
-                            setViewState('landing_guest');
+                            setViewState('landing_guest'); 
                         }
-                    } else {
-                        // 外帶模式
-                        if (localUser) setViewState('landing_mode');
-                        else window.liff.login(); 
+                    }
+                    // 情境 B: 遠端點餐 (無桌號)
+                    else {
+                        setViewState('landing_mode'); 
                     }
                     
                     setIsInitLoading(false);
                 };
-                
+
                 initApp();
             }, []);
 
@@ -767,42 +718,40 @@
             // ==========================================
             //  Order History Query (Security Rules Compliant)
             // ==========================================
-            // [Updated] 使用者資料監聽 (含強制註冊檢查) - 加入 DB 等待機制與訪客排除
+            // [Updated] 使用者資料監聽 (含強制註冊檢查 & 資料同步)
             useEffect(() => {
                 const startListening = () => {
                     const { db, appId, doc, onSnapshot } = window;
                     
+                    // 等待資料庫連線
                     if (!db) { setTimeout(startListening, 500); return; }
 
-                    // ★ 關鍵修正：如果是「訪客模式」，直接不監聽，並確保關閉註冊視窗
+                    // 1. 如果是「訪客」，絕對不開啟註冊視窗，並結束監聽
                     if (isGuest) {
                         setShowRegisterModal(false);
                         return;
                     }
 
-                    // 如果沒有使用者 (且不是訪客)，也不監聽
+                    // 2. 如果還沒登入，不動作
                     if (!currentUser) return;
 
                     try {
                         const userDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', currentUser.uid);
+                        
+                        // 開啟即時監聽
                         const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
                             if (docSnap.exists()) {
                                 const userData = docSnap.data();
                                 
+                                // 同步優惠券
                                 if (userData.myCoupons && Array.isArray(userData.myCoupons)) {
                                     setMyCoupons(userData.myCoupons);
                                 }
 
-                                const dbName = userData.name || userData.savedName;
-                                const dbPhone = userData.phone || userData.savedPhone;
+                                const dbName = userData.name;
+                                const dbPhone = userData.phone;
                                 
-                                // ★ 強制註冊邏輯：有 currentUser 且非 Guest，但資料不全 -> 開啟視窗
-                                if (!dbName || !dbPhone) {
-                                    setShowRegisterModal(true);
-                                } else {
-                                    setShowRegisterModal(false);
-                                }
-
+                                // ★ 更新介面顯示
                                 setUserProfile({ ...userData, name: dbName, phone: dbPhone });
                                 setUserInfo(prev => ({
                                     ...prev,
@@ -811,9 +760,21 @@
                                     contactMethod: userData.contactMethod || 'line',
                                     remember: true 
                                 }));
+
+                                // ★ 強制註冊核心邏輯 ★
+                                // 只要名字空白 OR 電話空白，就強制打開視窗
+                                // 使用 setTimeout 確保在 React 渲染週期後執行，避免被覆蓋
+                                if (!dbName || !dbPhone) {
+                                    console.log("資料不全，強制開啟註冊視窗");
+                                    setTimeout(() => setShowRegisterModal(true), 100);
+                                } else {
+                                    setShowRegisterModal(false);
+                                }
+
                             } else {
-                                // 文件不存在 (新用戶)，強制顯示註冊
-                                setShowRegisterModal(true);
+                                // 文件不存在 (全新用戶)，強制開啟視窗
+                                console.log("新用戶，強制開啟註冊視窗");
+                                setTimeout(() => setShowRegisterModal(true), 100);
                                 setUserProfile(null);
                             }
                         });
@@ -827,7 +788,7 @@
                 const unsub = startListening();
                 return () => { if (typeof unsub === 'function') unsub(); };
 
-            }, [currentUser, isGuest]); // ★ 加入 isGuest 作為依賴
+            }, [currentUser, isGuest]); // 依賴 currentUser 和 isGuest
 
             useEffect(() => {
                 const params = new URLSearchParams(window.location.search);
@@ -1235,6 +1196,38 @@
                 } catch (err) {
                     console.error("註冊失敗:", err);
                     showAlert("註冊失敗：" + (err.message || "請檢查網路"));
+                }
+            };
+			
+			// [New] 處理會員資料更新
+            const handleUpdateProfile = async (e) => {
+                e.preventDefault();
+                if (!currentUser) return;
+                
+                const formData = new FormData(e.target);
+                const newName = formData.get('edit_name').trim();
+                const newPhone = formData.get('edit_phone').trim();
+
+                if (!newName || !newPhone) { showAlert("請填寫完整姓名與電話"); return; }
+
+                try {
+                    const { db, appId, doc, setDoc } = window;
+                    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', currentUser.uid);
+                    
+                    // 更新 Firestore
+                    await setDoc(userRef, {
+                        name: newName,
+                        phone: newPhone,
+                        updatedAt: new Date().toISOString()
+                    }, { merge: true });
+
+                    // 這裡不需要手動 setUseInfo，因為您的 onSnapshot 監聽器會自動偵測到變更並更新畫面
+                    
+                    setShowEditProfileModal(false);
+                    showAlert("個人資料更新成功！");
+                } catch (err) {
+                    console.error("更新失敗:", err);
+                    showAlert("更新失敗，請稍後再試");
                 }
             };
 			
@@ -1914,77 +1907,44 @@
             // --- 視圖 1: 內用身分選擇 (掃碼後顯示) ---
             if (viewState === 'landing_guest') {
                 return (
-                    <div className="min-h-screen bg-slate-50 p-6 flex flex-col items-center justify-center relative overflow-hidden">
-                        {/* 背景裝飾 */}
-                        <div className="absolute top-0 left-0 w-64 h-64 bg-[#5B2274]/10 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2"></div>
-                        <div className="absolute bottom-0 right-0 w-96 h-96 bg-[#FFB800]/10 rounded-full blur-3xl translate-x-1/2 translate-y-1/2"></div>
+                    <div className="fixed inset-0 bg-slate-50 flex flex-col items-center justify-center p-6 animate-fade-in z-50">
+                        <div className="w-24 h-24 bg-white rounded-full shadow-xl flex items-center justify-center mb-6">
+                            <span className="text-4xl">🍽️</span>
+                        </div>
+                        <h2 className="text-2xl font-[900] text-slate-800 mb-2">歡迎光臨</h2>
+                        <p className="text-sm text-slate-500 font-bold mb-8">桌號：{tableNumber}</p>
 
-                        <div className="relative z-10 w-full max-w-sm space-y-6">
-                            {/* 主卡片區域 */}
-                            <div className="bg-white/80 backdrop-blur-sm p-8 rounded-3xl shadow-xl border border-white/50 text-center space-y-6">
-                                <div className="w-20 h-20 bg-gradient-to-br from-[#5B2274] to-[#8B44AC] rounded-2xl mx-auto flex items-center justify-center shadow-lg transform rotate-3">
-                                    <Icon name="coffee" size={40} className="text-white" />
-                                </div>
-                                
-                                <div>
-                                    <h3 className="text-2xl font-black text-slate-800 mb-2">歡迎光臨 City Burger</h3>
-                                    <p className="text-slate-500 font-medium">請選擇您的點餐方式</p>
-                                </div>
-
-                                {/* LINE 登入按鈕 (包含自動網域修正) */}
-                                <button 
-                                    onClick={() => {
-                                        // 1. 設定黃金網址 (這是您剛剛測試成功的那一個)
-                                        const targetDomainUrl = "https://cityburger-huwei.web.app/order.html";
-                                        
-                                        // 2. 檢查現在手機是不是就在這個網址上？
-                                        // 這裡會忽略 http/https 的差異，專注比對網域
-                                        const currentIsWebapp = window.location.href.includes("cityburger-huwei.web.app");
-
-                                        if (tableNumber) localStorage.setItem('cb_backup_table', tableNumber);
-
-                                        if (!currentIsWebapp) {
-                                            // 狀況 A：如果在 firebaseapp.com，強迫跳轉到 web.app
-                                            // 跳過去之後，讓使用者再按一次登入，這樣網域就一致了
-                                            alert("系統優化中，將為您切換至最佳連線...");
-                                            window.location.href = targetDomainUrl + window.location.search; // 把桌號參數帶過去
-                                            return;
-                                        }
-
-                                        // 狀況 B：已經在 web.app 了，直接登入
-                                        // 這時候「來源」跟「目的地」都是 web.app，絕對不會錯！
-                                        if (window.liff.isLoggedIn()) {
-                                            window.liff.logout();
-                                        }
-                                        
-                                        // 使用當前網址 (web.app) 作為跳轉目標
-                                        window.liff.login({ redirectUri: window.location.href });
-                                    }}
-                                    className="w-full bg-[#06C755] hover:bg-[#05b64c] text-white py-4 rounded-2xl font-black text-lg shadow-lg active:scale-95 transition-all flex items-center justify-center gap-3 group"
-                                >
-                                    <Icon name="message-circle" size={24} /> 
-                                    <span>LINE 會員登入</span>
-                                </button>
-                                
-                                <p className="text-xs text-slate-400">累積點數・領取優惠・專屬紀錄</p>
-                            </div>
-
-                            {/* 分隔線 */}
-                            <div className="relative flex items-center py-2">
-                                <div className="flex-grow border-t border-slate-300"></div>
-                                <span className="flex-shrink-0 mx-4 text-slate-400 text-sm font-bold">或是</span>
-                                <div className="flex-grow border-t border-slate-300"></div>
-                            </div>
-
-                            {/* 訪客直接點餐按鈕 */}
+                        <div className="w-full max-w-xs space-y-4">
+                            {/* [Updated] LINE 會員登入按鈕 - 改為跳轉至 LIFF URL */}
                             <button 
                                 onClick={() => {
-                                    setViewState('landing_mode');
-                                    setCurrentUser({ uid: 'guest', displayName: '訪客' });
+                                    // 建構 LIFF Deep Link
+                                    // 格式：https://liff.line.me/{LIFF_ID}?table={桌號}&from_login=true
+                                    // 這會強制喚起 LINE App，並帶入參數，讓 useEffect 判定為「已登入模式」
+                                    const liffUrl = `https://liff.line.me/${LIFF_ID_ORDER}?table=${tableNumber}&from_login=true`;
+                                    window.location.href = liffUrl;
                                 }}
-                                className="w-full bg-white border-2 border-slate-100 hover:border-slate-300 p-4 rounded-3xl flex items-center justify-center gap-2 shadow-sm transition-all active:scale-95 text-slate-500 font-bold"
+                                className="w-full bg-[#06C755] text-white py-4 rounded-2xl font-black text-lg shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
                             >
-                                <Icon name="user" size={20} /> 直接點餐 (免註冊)
+                                <Icon name="message-circle" size={24} /> LINE 會員登入
+                            </button>
+                            
+                            <p className="text-xs text-slate-400 text-center">累積點數・領取優惠・專屬紀錄</p>
+                            
+                            <div className="relative py-4">
+                                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-300"></div></div>
+                                <div className="relative flex justify-center text-xs"><span className="px-2 bg-slate-50 text-slate-400 font-bold">或</span></div>
+                            </div>
+
+                            {/* 直接點餐 (訪客模式) */}
+                            <button 
+                                onClick={() => {
+                                    setIsGuest(true);
+                                    setViewState('menu'); 
+                                }}
+                                className="w-full bg-white text-slate-600 border-2 border-slate-200 py-4 rounded-2xl font-black text-lg hover:border-slate-400 active:scale-95 transition-all"
+                            >
+                                直接點餐 (免登入)
                             </button>
                         </div>
                     </div>
@@ -2334,9 +2294,22 @@
                                     <div className="w-20 h-20 bg-slate-100 rounded-full mx-auto mb-4 flex items-center justify-center text-slate-400">
                                         <Icon name="user" size={40} />
                                     </div>
-                                    <h3 className="text-lg font-black text-slate-800 mb-1">{lineDisplayName || userInfo.name || '親愛的顧客'}</h3>
+                                    
+                                    {/* [Modified] 只顯示註冊姓名 (userInfo.name)，拿掉 lineDisplayName */}
+                                    <h3 className="text-lg font-black text-slate-800 mb-1">{userInfo.name || '親愛的顧客'}</h3>
                                     <p className="text-sm text-slate-500 font-bold mb-4">{userInfo.phone || '尚未綁定電話'}</p>
-                                    {!currentUser && <button onClick={() => window.liff?.login()} className="text-xs bg-[#06C755] text-white px-4 py-2 rounded-full font-bold shadow-sm active:scale-95">登入 LINE 帳號</button>}
+                                    
+                                    {!currentUser ? (
+                                        <button onClick={() => window.liff?.login()} className="text-xs bg-[#06C755] text-white px-4 py-2 rounded-full font-bold shadow-sm active:scale-95">登入 LINE 帳號</button>
+                                    ) : (
+                                        // [New] 新增修改按鈕
+                                        <button 
+                                            onClick={() => setShowEditProfileModal(true)}
+                                            className="text-xs bg-slate-100 text-slate-600 px-4 py-2 rounded-full font-bold hover:bg-slate-200 transition-colors flex items-center gap-1 mx-auto"
+                                        >
+                                            <Icon name="pencil" size={12} /> 修改資料
+                                        </button>
+                                    )}
                                 </div>
 
                                 {/* 2. 特約會員卡 (動態顯示) */}
@@ -2897,7 +2870,32 @@
                                         )}
                                     </div>
                                     <div className="border-t border-slate-100 border-dashed my-4"></div>
-                                    <div className="space-y-3 pt-2"><h4 className="text-sm font-black text-slate-400 uppercase tracking-widest">優惠折扣</h4><div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">{myCoupons.map((c, i) => (<button key={i} onClick={() => setSelectedCoupon(selectedCoupon === c ? null : c)} className={`flex-shrink-0 px-3 py-2 rounded-xl border text-xs font-bold transition-all ${selectedCoupon === c ? 'bg-purple-100 border-[#5B2274] text-[#5B2274]' : 'bg-white border-slate-200 text-slate-600'}`}>{c.title} (-${c.discount})</button>))}{myCoupons.length === 0 && <span className="text-xs text-slate-400 py-2">無可用優惠券，請至菜單分頁領取</span>}</div><div className="flex items-start gap-3 p-3 bg-red-50 border border-red-100 rounded-xl cursor-pointer" onClick={() => setUseLoyaltyCard(!useLoyaltyCard)}><div className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 mt-0.5 ${useLoyaltyCard ? 'bg-red-500 border-red-500' : 'bg-white border-red-200'}`}>{useLoyaltyCard && <Icon name="check" size={14} className="text-white" />}</div><div><p className="text-sm font-bold text-red-800">使用集點卡折抵 ${settings.pointRewardValue || 50}</p><p className="text-[10px] text-red-500 mt-1 font-bold">※ 若現場核銷不符資格將收取原價</p></div></div></div>
+                                    <div className="space-y-3 pt-2">
+                                        <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest">優惠折扣</h4>
+                                        
+                                        {/* [New] 優惠券列表：只有非訪客才顯示 */}
+                                        {!isGuest && (
+                                            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+                                                {myCoupons.map((c, i) => (
+                                                    <button key={i} onClick={() => setSelectedCoupon(selectedCoupon === c ? null : c)} className={`flex-shrink-0 px-3 py-2 rounded-xl border text-xs font-bold transition-all ${selectedCoupon === c ? 'bg-purple-100 border-[#5B2274] text-[#5B2274]' : 'bg-white border-slate-200 text-slate-600'}`}>
+                                                        {c.title} (-${c.discount})
+                                                    </button>
+                                                ))}
+                                                {myCoupons.length === 0 && <span className="text-xs text-slate-400 py-2">無可用優惠券，請至菜單分頁領取</span>}
+                                            </div>
+                                        )}
+
+                                        {/* 集點卡折抵：訪客與會員都保留 (因為是紙本核銷) */}
+                                        <div className="flex items-start gap-3 p-3 bg-red-50 border border-red-100 rounded-xl cursor-pointer" onClick={() => setUseLoyaltyCard(!useLoyaltyCard)}>
+                                            <div className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 mt-0.5 ${useLoyaltyCard ? 'bg-red-500 border-red-500' : 'bg-white border-red-200'}`}>
+                                                {useLoyaltyCard && <Icon name="check" size={14} className="text-white" />}
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-bold text-red-800">使用集點卡折抵 ${settings.pointRewardValue || 50}</p>
+                                                <p className="text-[10px] text-red-500 mt-1 font-bold">※ 若現場核銷不符資格將收取原價</p>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
 								<div className="mt-2 pt-4 border-t border-slate-100">
                                     <div className="space-y-2 mb-4">
@@ -2981,7 +2979,61 @@
                     )}
 					
 					{/* [New] 強制註冊視窗 (無關閉按鈕，強制阻擋) */}
-                    {showRegisterModal && currentUser && (
+                    {/* [New] 強制註冊視窗 (加入 !isGuest 判斷，訪客不顯示) */}
+                    {showRegisterModal && currentUser && !isGuest && (
+                        <div className="fixed inset-0 bg-black/90 z-[9999] flex items-center justify-center p-6 backdrop-blur-md animate-fade-in">
+                            <div className="bg-white w-full max-w-sm rounded-3xl p-8 shadow-2xl relative overflow-hidden">
+                                {/* 背景光暈裝飾 */}
+                                <div className="absolute top-0 right-0 w-32 h-32 bg-purple-100 rounded-full blur-2xl -mr-16 -mt-16 pointer-events-none"></div>
+                                
+                                <div className="relative z-10 text-center">
+                                    <div className="w-16 h-16 bg-[#5B2274] text-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-purple-200">
+                                        <Icon name="user-plus" size={32} />
+                                    </div>
+                                    <h2 className="text-2xl font-[900] text-slate-800 mb-2">歡迎加入</h2>
+                                    <p className="text-sm text-slate-500 font-bold mb-8">初次使用請先完善會員資料</p>
+                                    
+                                    <form onSubmit={handleRegister} className="space-y-4 text-left">
+                                        <div>
+                                            <label className="text-xs font-black text-slate-400 ml-1 mb-1 block">您的姓名</label>
+                                            <input 
+                                                name="reg_name" 
+                                                type="text" 
+                                                placeholder="請輸入姓名" 
+                                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-[#5B2274] focus:ring-1 focus:ring-[#5B2274] transition-all" 
+                                                required
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-black text-slate-400 ml-1 mb-1 block">手機號碼</label>
+                                            <input 
+                                                name="reg_phone" 
+                                                type="tel" 
+                                                placeholder="請輸入手機號碼" 
+                                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-[#5B2274] focus:ring-1 focus:ring-[#5B2274] transition-all" 
+                                                required
+                                            />
+                                        </div>
+                                        
+                                        <div className="flex items-start gap-3 p-3 bg-purple-50 rounded-xl mt-2">
+                                            <div className="mt-0.5 text-[#5B2274]"><Icon name="check-circle-2" size={16} /></div>
+                                            <p className="text-xs text-slate-600 font-bold leading-relaxed">
+                                                點擊註冊即代表您同意綁定此 LINE 帳號。
+                                            </p>
+                                        </div>
+
+                                        <button type="submit" className="w-full bg-[#5B2274] text-white py-4 rounded-xl font-black text-lg shadow-xl active:scale-95 transition-all mt-4">
+                                            確認註冊
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+					
+					{/* [Updated] 強制註冊視窗 (無關閉按鈕) */}
+                    {/* 顯示條件：開關開啟 AND 有登入使用者 AND 不是訪客 */}
+                    {showRegisterModal && currentUser && !isGuest && (
                         <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-6 backdrop-blur-md animate-fade-in">
                             <div className="bg-white w-full max-w-sm rounded-3xl p-8 shadow-2xl relative overflow-hidden">
                                 <div className="absolute top-0 right-0 w-32 h-32 bg-purple-100 rounded-full blur-2xl -mr-16 -mt-16 pointer-events-none"></div>
@@ -2995,30 +3047,55 @@
                                     <form onSubmit={handleRegister} className="space-y-4 text-left">
                                         <div>
                                             <label className="text-xs font-black text-slate-400 ml-1 mb-1 block">您的姓名</label>
-                                            <input 
-												name="reg_name" 
-												type="text" 
-												placeholder="請輸入姓名" 
-												className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-[#5B2274] focus:ring-1 focus:ring-[#5B2274] transition-all" 
-											/>
+                                            <input name="reg_name" type="text" placeholder="請輸入姓名" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-[#5B2274] focus:ring-1 focus:ring-[#5B2274]" />
                                         </div>
                                         <div>
                                             <label className="text-xs font-black text-slate-400 ml-1 mb-1 block">手機號碼</label>
-                                            <input name="reg_phone" type="tel" placeholder="請輸入手機號碼" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-[#5B2274] focus:ring-1 focus:ring-[#5B2274] transition-all" />
+                                            <input name="reg_phone" type="tel" placeholder="請輸入手機號碼" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-[#5B2274] focus:ring-1 focus:ring-[#5B2274]" />
                                         </div>
-                                        
                                         <div className="flex items-start gap-3 p-3 bg-purple-50 rounded-xl mt-2">
                                             <div className="mt-0.5 text-[#5B2274]"><Icon name="check-circle-2" size={16} /></div>
-                                            <p className="text-xs text-slate-600 font-bold leading-relaxed">
-                                                點擊註冊即代表您同意綁定此 LINE 帳號，並接受我們的服務條款。
-                                            </p>
+                                            <p className="text-xs text-slate-600 font-bold leading-relaxed">點擊註冊即代表您同意綁定此 LINE 帳號。</p>
                                         </div>
-
-                                        <button type="submit" className="w-full bg-[#5B2274] text-white py-4 rounded-xl font-black text-lg shadow-xl active:scale-95 transition-all mt-4">
-                                            確認註冊
-                                        </button>
+                                        <button type="submit" className="w-full bg-[#5B2274] text-white py-4 rounded-xl font-black text-lg shadow-xl active:scale-95 transition-all mt-4">確認註冊</button>
                                     </form>
                                 </div>
+                            </div>
+                        </div>
+                    )}
+					
+					{/* [New] 修改個人資料 Modal */}
+                    {showEditProfileModal && currentUser && (
+                        <div className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center p-6 backdrop-blur-sm animate-fade-in" onClick={() => setShowEditProfileModal(false)}>
+                            <div className="bg-white w-full max-w-xs rounded-3xl p-6 shadow-2xl animate-slide-up relative" onClick={e => e.stopPropagation()}>
+                                <button onClick={() => setShowEditProfileModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><Icon name="x" size={24} /></button>
+                                <h3 className="text-xl font-[900] text-slate-800 mb-6 text-center">修改個人資料</h3>
+                                
+                                <form onSubmit={handleUpdateProfile} className="space-y-4">
+                                    <div>
+                                        <label className="text-xs font-black text-slate-400 ml-1 mb-1 block">姓名</label>
+                                        <input 
+                                            name="edit_name" 
+                                            type="text" 
+                                            defaultValue={userInfo.name}
+                                            placeholder="請輸入姓名" 
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-[#5B2274]" 
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-black text-slate-400 ml-1 mb-1 block">電話</label>
+                                        <input 
+                                            name="edit_phone" 
+                                            type="tel" 
+                                            defaultValue={userInfo.phone}
+                                            placeholder="請輸入電話" 
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-[#5B2274]" 
+                                        />
+                                    </div>
+                                    <button type="submit" className="w-full bg-[#5B2274] text-white py-3.5 rounded-xl font-black text-lg shadow-lg active:scale-95 transition-all mt-2">
+                                        儲存變更
+                                    </button>
+                                </form>
                             </div>
                         </div>
                     )}
